@@ -15,7 +15,7 @@ public class ARSandboxController : MonoBehaviour
 {
     // Vertex Struct for Interleaved MeshData (High Performance)
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-    private struct TerrainVertex
+    public struct TerrainVertex
     {
         public Vector3 Pos;
         public Vector2 Uv;
@@ -68,9 +68,10 @@ public class ARSandboxController : MonoBehaviour
     public float HeightScale = 5f;
 
     [Header("Smoothing")]
-    public bool EnableSmoothing = true;
-    [Range(0f, 1f)]
-    public float SmoothingFactor = 0.5f;
+    // Legacy smoothing removed for performance
+    public bool EnableSmoothing = false; 
+    // [Range(0f, 1f)] public float SmoothingFactor = 0.5f; // Removed
+
 
     [Header("1 Euro Filter (Adaptive)")]
     public float MinCutoff = 1.0f; // Static stability
@@ -112,7 +113,10 @@ public class ARSandboxController : MonoBehaviour
     private int[] _triangles;
     private Vector2[] _uvs;
     private Vector2[] _uv2;
-    private float[] _heightVelocities; // For SmoothDamp
+    // private Vector3[] _vertices; // Kept for wall generation (defined earlier)
+    // private int[] _triangles; // Kept
+    // private Vector2[] _uvs; // Kept for init
+    // private float[] _heightVelocities; // Removed
     
     // Debug Texture
     private Texture2D _rawDepthTexture;
@@ -234,7 +238,9 @@ public class ARSandboxController : MonoBehaviour
             float cutoff = MinCutoff + Beta * math.abs(dx);
             
             // Hand Rejection: If change is too violent, aggressively smooth to stay on sand
-            if (math.abs(dx) * DeltaTime > HandThreshold) {
+            // FIX: Only apply rejection if we already have a reasonably non-zero height
+            // This prevents the filter from freezing on startup (jumping from 0 to 1500mm)
+            if (math.abs(dx) * DeltaTime > HandThreshold && FilteredState[i] > 10.0f) {
                 cutoff = MinCutoff * 0.1f; // Freeze
             }
 
@@ -283,6 +289,82 @@ public class ARSandboxController : MonoBehaviour
             }
 
             Output[i] = (ushort)(sum / count);
+        }
+    }
+
+    [BurstCompile]
+    public struct MeshGenJob : IJobParallelFor
+    {
+        public int Resolution;
+        public float Width;
+        public float Length;
+        public float MinDepthMM;
+        public float MaxDepthMM;
+        public float HeightScale;
+        public bool FlatMode;
+        
+        // Calibration
+        public Vector2 pBL, pTL, pTR, pBR;
+        
+        [ReadOnly] public NativeArray<ushort> DepthData;
+        public int DepthW;
+        public int DepthH;
+        
+        [NativeDisableParallelForRestriction]
+        [WriteOnly] public NativeArray<TerrainVertex> OutputVerts;
+
+        public void Execute(int i)
+        {
+            int z = i / Resolution;
+            int x = i % Resolution;
+            
+            // Base Grid Position
+            float xPos = ((float)x / (Resolution - 1) - 0.5f) * Width;
+            float zPos = ((float)z / (Resolution - 1) - 0.5f) * Length;
+            
+            // UVs
+            float u = (float)x / (Resolution - 1);
+            float v = (float)z / (Resolution - 1);
+            
+            // 1. Calculate Height (Bilinear Sample)
+            float targetHeight = 0;
+            
+            // Calibration Logic
+            Vector2 leftEdge = Vector2.Lerp(pBL, pTL, v);
+            Vector2 rightEdge = Vector2.Lerp(pBR, pTR, v);
+            Vector2 sampleUV = Vector2.Lerp(leftEdge, rightEdge, u);
+
+            float texX = sampleUV.x * (DepthW - 1);
+            float texY = sampleUV.y * (DepthH - 1);
+            
+            int x0 = (int)math.floor(texX);
+            int y0 = (int)math.floor(texY);
+            int x1 = math.min(x0 + 1, DepthW - 1);
+            int y1 = math.min(y0 + 1, DepthH - 1);
+            
+            float fX = texX - x0;
+            float fY = texY - y0;
+
+            float d00 = (float)DepthData[y0 * DepthW + x0];
+            float d10 = (float)DepthData[y0 * DepthW + x1];
+            float d01 = (float)DepthData[y1 * DepthW + x0];
+            float d11 = (float)DepthData[y1 * DepthW + x1];
+
+            float depthVal = math.lerp(math.lerp(d00, d10, fX), math.lerp(d01, d11, fX), fY);
+
+            if (depthVal > MinDepthMM && depthVal < MaxDepthMM)
+            {
+                float normalized = math.unlerp(MaxDepthMM, MinDepthMM, depthVal);
+                targetHeight = normalized * HeightScale;
+            }
+            
+            // 2. Vertex Output
+            OutputVerts[i] = new TerrainVertex
+            {
+                Pos = new Vector3(xPos, FlatMode ? 0 : targetHeight, zPos),
+                Uv = new Vector2(u, v),
+                Uv2 = new Vector2(targetHeight, 0)
+            };
         }
     }
 
@@ -368,11 +450,7 @@ public class ARSandboxController : MonoBehaviour
     {
         EnsureMeshInitialized();
 
-        Vector2 pBL = CalibrationPoints[0];
-        Vector2 pTL = CalibrationPoints[1];
-        Vector2 pTR = CalibrationPoints[2];
-        Vector2 pBR = CalibrationPoints[3];
-
+        // 1. Direct Mesh Write using Job
         Mesh.MeshDataArray meshDataArray = Mesh.AllocateWritableMeshData(1);
         Mesh.MeshData meshData = meshDataArray[0];
 
@@ -386,85 +464,42 @@ public class ARSandboxController : MonoBehaviour
         var nativeVerts = meshData.GetVertexData<TerrainVertex>(0);
         var nativeIndices = meshData.GetIndexData<int>();
         nativeIndices.CopyFrom(_triangles);
-
-        for (int z = 0; z < MeshResolution; z++)
+        
+        // Schedule Job
+        var job = new MeshGenJob
         {
-            float v = (float)z / (MeshResolution - 1);
-            for (int x = 0; x < MeshResolution; x++)
-            {
-                float u = (float)x / (MeshResolution - 1);
-                int i = z * MeshResolution + x;
-                
-                // Calibration Logic
-                Vector2 leftEdge = Vector2.Lerp(pBL, pTL, v);
-                Vector2 rightEdge = Vector2.Lerp(pBR, pTR, v);
-                Vector2 sampleUV = Vector2.Lerp(leftEdge, rightEdge, u);
+            Resolution = MeshResolution,
+            Width = Width, Length = Length,
+            MinDepthMM = MinDepthMM, MaxDepthMM = MaxDepthMM, HeightScale = HeightScale,
+            FlatMode = FlatMode,
+            pBL = CalibrationPoints[0], pTL = CalibrationPoints[1],
+            pTR = CalibrationPoints[2], pBR = CalibrationPoints[3],
+            DepthData = _filterOutput, // Use the NativeArray directly
+            DepthW = depthW, DepthH = depthH,
+            OutputVerts = nativeVerts
+        };
+        
+        job.Schedule(MeshResolution * MeshResolution, 64).Complete();
 
-                // Bilinear Sampling for Smoothness
-                float texX = sampleUV.x * (depthW - 1);
-                float texY = sampleUV.y * (depthH - 1);
-                
-                int x0 = Mathf.FloorToInt(texX);
-                int y0 = Mathf.FloorToInt(texY);
-                int x1 = Mathf.Min(x0 + 1, depthW - 1);
-                int y1 = Mathf.Min(y0 + 1, depthH - 1);
-                
-                float fX = texX - x0;
-                float fY = texY - y0;
-
-                ushort d00 = depthData[y0 * depthW + x0];
-                ushort d10 = depthData[y0 * depthW + x1];
-                ushort d01 = depthData[y1 * depthW + x0];
-                ushort d11 = depthData[y1 * depthW + x1];
-
-                // Interpolated Depth Value
-                float depthVal = Mathf.Lerp(
-                    Mathf.Lerp(d00, d10, fX),
-                    Mathf.Lerp(d01, d11, fX),
-                    fY
-                );
-
-                float targetHeight = 0;
-                if (depthVal > MinDepthMM && depthVal < MaxDepthMM)
-                {
-                    float normalized = Mathf.InverseLerp(MaxDepthMM, MinDepthMM, (float)depthVal);
-                    targetHeight = normalized * HeightScale;
-                }
-
-                // Smoothing
-                float currentY = _vertices[i].y; 
-                float newY = targetHeight;
-
-                if (!FlatMode && EnableSmoothing)
-                {
-                    // Map generic 0..1 smoothing factor to a time constant (0.02s to 0.5s)
-                    float smoothTime = Mathf.Lerp(0.02f, 0.5f, SmoothingFactor);
-                    newY = Mathf.SmoothDamp(currentY, targetHeight, ref _heightVelocities[i], smoothTime);
-                }
-                else
-                {
-                    // If smoothing is off or flat mode, reset velocity to avoid "momentum" when re-enabling
-                    _heightVelocities[i] = 0f;
-                    if (FlatMode) newY = 0;
-                }
-                
-                _vertices[i].y = newY;
-                
-                nativeVerts[i] = new TerrainVertex 
-                {
-                    Pos = _vertices[i],
-                    Uv = _uvs[i],
-                    Uv2 = new Vector2(FlatMode ? targetHeight : newY, 0)
-                };
-            }
-        }
-
+        // Apply
         meshData.subMeshCount = 1;
         meshData.SetSubMesh(0, new SubMeshDescriptor(0, _triangles.Length));
         Mesh.ApplyAndDisposeWritableMeshData(meshDataArray, _mesh, MeshUpdateFlags.DontRecalculateBounds);
         
+        // Recalculate Normals (Ideally Jobified too, but removing Update loop helps massively already)
+        // For now, we rely on Mesh.RecalculateNormals which is fast enough if called once per frame 
+        // compared to the previous slow loop + smoothing.
+        // Optimization: In a real 'turbo' fix, we'd calculate normals in the job.
+        // But removing SmoothDamp is the key lag fix.
         if (!FlatMode) _mesh.RecalculateNormals(); 
+        
         _mesh.RecalculateBounds();
+        
+        // Sync vertices back to CPU array for Walls (This is the only penalty, but necessary for walls)
+        // We can optimize walls later.
+        // _vertices array was used by walls. We need to fetch it or update walls differently.
+        // Low perf way:
+        if (ShowWalls) _mesh.vertices.CopyTo(_vertices, 0); 
         
         UpdateWalls();
     }
@@ -600,7 +635,7 @@ public class ARSandboxController : MonoBehaviour
         _vertices = new Vector3[MeshResolution * MeshResolution];
         _uvs = new Vector2[MeshResolution * MeshResolution];
         _uv2 = new Vector2[MeshResolution * MeshResolution];
-        _heightVelocities = new float[MeshResolution * MeshResolution];
+        // _heightVelocities = new float[MeshResolution * MeshResolution];
         _triangles = new int[(MeshResolution - 1) * (MeshResolution - 1) * 6];
         for (int z = 0; z < MeshResolution; z++) {
             for (int x = 0; x < MeshResolution; x++) {
@@ -643,7 +678,7 @@ public class ARSandboxController : MonoBehaviour
         _mesh.vertices = _vertices; _mesh.RecalculateBounds();
         
         // Re-init velocities if size changes
-        _heightVelocities = new float[_vertices.Length]; 
+        // _heightVelocities = new float[_vertices.Length]; 
     }
 
     public void SaveSettings() {
@@ -653,7 +688,7 @@ public class ARSandboxController : MonoBehaviour
             tintStrength = TintStrength, sandScale = SandScale, waterLevel = WaterLevel,
             colorShift = ColorShift,
             contourInterval = ContourInterval, contourThickness = ContourThickness,
-            smoothingFactor = SmoothingFactor,
+            // smoothingFactor = SmoothingFactor,
             minCutoff = MinCutoff, beta = Beta, handThreshold = HandFilterThreshold,
             spatialBlur = SpatialBlurIterations,
             calibrationPoints = CalibrationPoints
@@ -673,7 +708,7 @@ public class ARSandboxController : MonoBehaviour
                     ColorShift = data.colorShift;
                     ContourInterval = data.contourInterval > 0 ? data.contourInterval : 0.5f;
                     ContourThickness = data.contourThickness > 0 ? data.contourThickness : 1.0f;
-                    SmoothingFactor = data.smoothingFactor; 
+                    // SmoothingFactor = data.smoothingFactor; 
                     if (data.minCutoff > 0) MinCutoff = data.minCutoff;
                     if (data.beta > 0) Beta = data.beta;
                     if (data.handThreshold > 0) HandFilterThreshold = data.handThreshold;

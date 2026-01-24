@@ -216,16 +216,19 @@ Shader "Custom/Topography"
                 
                 // Sample gradient
                 
-                // Discrete bands mode: posterize height into 5 bands aligned with contours
+                // Discrete bands mode: posterize height into bands aligned with contours
                 float sampleHeight = height01;
                 if (_DiscreteBands > 0.5) {
                     // Calculate which contour interval we're in
-                    float contourGrid = height / _ContourInterval;
-                    // Divide into 5 bands across the height range
-                    float bandsPerHeight = 5.0;
-                    float bandIndex = floor(height01 * bandsPerHeight);
-                    // Normalize back to 0-1, sample from center of each band
-                    sampleHeight = (bandIndex + 0.5) / bandsPerHeight;
+                    float stepIndex = floor(height / _ContourInterval);
+                    // Determine the world height of that step
+                    float steppedHeight = stepIndex * _ContourInterval;
+
+                    // Normalize this stepped height to get the UV for the color ramp
+                    sampleHeight = saturate(((steppedHeight - _HeightMin) / range) + _ColorShift);
+                    
+                    // Apply the same flat-mode fade out logic 
+                    sampleHeight *= scaleFade;
                 }
                 
                 half4 gradientColor = SAMPLE_TEXTURE2D(_ColorRamp, sampler_ColorRamp, float2(sampleHeight, 0.5));
