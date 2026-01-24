@@ -1,9 +1,12 @@
 using UnityEngine;
+using Unity.Collections;
+using Unity.Jobs;
+using Unity.Burst;
+using Unity.Mathematics;
 
 public class SimulatedDepthProvider : MonoBehaviour, IDepthProvider
 {
     [Header("Simulation Settings")]
-    [Tooltip("Resolution of the simulation grid")]
     public int Resolution = 512;
     [Range(0.01f, 0.5f)]
     public float NoiseScale = 0.1f;
@@ -22,7 +25,8 @@ public class SimulatedDepthProvider : MonoBehaviour, IDepthProvider
     public float MinDepthMM = 500f;
     public float MaxDepthMM = 1500f;
 
-    private ushort[] _depthData;
+    private NativeArray<ushort> _depthBuffer;
+    private ushort[] _depthDataManaged; 
     private float _noiseOffsetX;
     private float _noiseOffsetZ;
     private bool _isRunning;
@@ -33,73 +37,80 @@ public class SimulatedDepthProvider : MonoBehaviour, IDepthProvider
 
     public void Initialize()
     {
-        _depthData = new ushort[Resolution * Resolution];
+        if (_depthBuffer.IsCreated) _depthBuffer.Dispose();
+        _depthBuffer = new NativeArray<ushort>(Resolution * Resolution, Allocator.Persistent);
+        _depthDataManaged = new ushort[Resolution * Resolution];
         _isRunning = true;
     }
 
     public void Shutdown()
     {
         _isRunning = false;
+        if (_depthBuffer.IsCreated) _depthBuffer.Dispose();
     }
 
     public ushort[] GetDepthData()
     {
         if (!_isRunning) return null;
-
         GenerateFrame();
-        return _depthData;
+        _depthBuffer.CopyTo(_depthDataManaged);
+        return _depthDataManaged;
     }
 
-    public string GetDeviceName()
+    public string GetDeviceName() => "Simulated (Burst Optimized)";
+
+    [BurstCompile]
+    struct SimNoiseJob : IJobParallelFor
     {
-        return "Simulated Perlin Noise";
+        public int Resolution;
+        public float NoiseScale;
+        public float OffsetX, OffsetZ;
+        public float DetailAmount, Steepness, Amplitude, HeightOffset;
+        public float MinDepth, MaxDepth;
+        
+        [WriteOnly] public NativeArray<ushort> Output;
+
+        public void Execute(int i)
+        {
+            int x = i % Resolution;
+            int z = i / Resolution;
+
+            float xCoord = (float)x * NoiseScale + OffsetX;
+            float zCoord = (float)z * NoiseScale + OffsetZ;
+
+            // Simplex noise is much faster than Mathf.PerlinNoise
+            float noise1 = (noise.snoise(new float2(xCoord, zCoord)) + 1.0f) * 0.5f;
+            float noise2 = (noise.snoise(new float2(xCoord * 2.0f, zCoord * 2.0f)) + 1.0f) * 0.5f;
+            
+            float finalNoise = math.lerp(noise1, (noise1 + noise2) * 0.66f, DetailAmount);
+            finalNoise = math.pow(finalNoise, Steepness) * Amplitude + HeightOffset;
+            finalNoise = math.saturate(finalNoise);
+
+            // HARD-SHELL CLAMP: Prevent simulation from ever outputting 0 (shadow)
+            float depthVal = math.lerp(MaxDepth, MinDepth, finalNoise);
+            Output[i] = (ushort)(math.clamp(depthVal, 1.0f, 65000.0f) + 0.5f);
+        }
     }
 
     void GenerateFrame()
     {
-        // Update offsets
         _noiseOffsetX += Time.deltaTime * MoveSpeed;
         _noiseOffsetZ += Time.deltaTime * MoveSpeed * 0.5f;
 
-        for (int z = 0; z < Resolution; z++)
+        var job = new SimNoiseJob
         {
-            for (int x = 0; x < Resolution; x++)
-            {
-                int i = z * Resolution + x;
+            Resolution = Resolution,
+            NoiseScale = NoiseScale,
+            OffsetX = _noiseOffsetX, OffsetZ = _noiseOffsetZ,
+            DetailAmount = DetailAmount, Steepness = Steepness,
+            Amplitude = Amplitude, HeightOffset = HeightOffset,
+            MinDepth = MinDepthMM, MaxDepth = MaxDepthMM,
+            Output = _depthBuffer
+        };
 
-                // Base Coordinates
-                float xCoord = (float)x * NoiseScale + _noiseOffsetX;
-                float zCoord = (float)z * NoiseScale + _noiseOffsetZ;
-
-                // Layer 1: Big Hills
-                float noise1 = Mathf.PerlinNoise(xCoord, zCoord);
-                
-                // Layer 2: Smaller Detail
-                float noise2 = Mathf.PerlinNoise(xCoord * 2f, zCoord * 2f) * 0.5f;
-                
-                // Combine
-                float finalNoise = Mathf.Lerp(noise1, (noise1 + noise2) * 0.66f, DetailAmount);
-                
-                // Modifiers
-                finalNoise = Mathf.Pow(finalNoise, Steepness);
-                finalNoise *= Amplitude;
-                
-                float normalizedHeight = finalNoise + HeightOffset;
-                normalizedHeight = Mathf.Clamp01(normalizedHeight);
-
-                // Convert 0..1 height back to Depth (mm)
-                // Note: Depth is "Distance from sensor", so Higher Ground = Lower Depth Value
-                // Height 1.0 (Peak) -> MinDepthMM
-                // Height 0.0 (Floor) -> MaxDepthMM
-                
-                float depthVal = Mathf.Lerp(MaxDepthMM, MinDepthMM, normalizedHeight);
-                _depthData[i] = (ushort)depthVal;
-            }
-        }
+        job.Schedule(Resolution * Resolution, 64).Complete();
     }
 
-    void OnDestroy()
-    {
-        Shutdown();
-    }
+    void OnDestroy() => Shutdown();
+    void OnDisable() => Shutdown();
 }

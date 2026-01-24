@@ -210,6 +210,7 @@ public class ARSandboxController : MonoBehaviour
         public float MinCutoff;
         public float Beta;
         public float HandThreshold;
+        public float MaxDepth;
         
         [ReadOnly] public NativeArray<ushort> RawInput;
         public NativeArray<float> FilteredState;
@@ -220,13 +221,15 @@ public class ARSandboxController : MonoBehaviour
         {
             float raw = (float)RawInput[i];
             
-            // Hole Filling: If depth is 0 (invalid/occluded), keep last known good state
+            // Hole Filling: Use last known good state. 
+            // Do NOT fallback to MaxDepth here as it creates "Gravity Wells" for the blur pass.
             if (raw <= 0) {
                 Output[i] = (ushort)FilteredState[i];
                 return;
             }
 
             float prevRaw = PrevRaw[i];
+            if (prevRaw <= 0) prevRaw = raw; // Handle first valid frame after shadow
             
             // 1. Calculate Velocity (Derivative)
             float dx = (raw - prevRaw) / DeltaTime;
@@ -250,6 +253,10 @@ public class ARSandboxController : MonoBehaviour
             // 3. Update State
             float filtered = math.lerp(FilteredState[i], raw, alpha);
             
+            // HARD-SHELL CLAMP: Legally forbid depth from dipping below 1mm.
+            // This prevents the ushort conversion from wrapping around to 65535.
+            filtered = math.clamp(filtered, 1.0f, 65000.0f);
+            
             FilteredState[i] = filtered;
             PrevRaw[i] = raw;
             Output[i] = (ushort)filtered;
@@ -269,9 +276,11 @@ public class ARSandboxController : MonoBehaviour
             int x = i % Width;
             int y = i / Width;
 
-            // Simple 3x3 Box Blur
+            // Shadow-Transparent Blur: Heal gaps (0) using average of non-zero neighbors.
             float sum = 0;
             int count = 0;
+
+            ushort center = Input[i];
 
             for (int dy = -1; dy <= 1; dy++)
             {
@@ -283,12 +292,17 @@ public class ARSandboxController : MonoBehaviour
                     int nx = x + dx;
                     if (nx < 0 || nx >= Width) continue;
 
-                    sum += Input[ny * Width + nx];
-                    count++;
+                    ushort val = Input[ny * Width + nx];
+                    if (val > 0) {
+                        sum += val;
+                        count++;
+                    }
                 }
             }
 
-            Output[i] = (ushort)(sum / count);
+            ushort result = count > 0 ? (ushort)(sum / count) : center;
+            // HARD-SHELL CLAMP: Ensure smoothed result never hits 0 unless it was already a gap
+            Output[i] = center > 0 ? (ushort)math.max(1, result) : (ushort)0;
         }
     }
 
@@ -350,12 +364,31 @@ public class ARSandboxController : MonoBehaviour
             float d01 = (float)DepthData[y1 * DepthW + x0];
             float d11 = (float)DepthData[y1 * DepthW + x1];
 
-            float depthVal = math.lerp(math.lerp(d00, d10, fX), math.lerp(d01, d11, fX), fY);
+            float depthVal = 0;
+            if (d00 > 0 && d10 > 0 && d01 > 0 && d11 > 0) {
+                depthVal = math.lerp(math.lerp(d00, d10, fX), math.lerp(d01, d11, fX), fY);
+            } else {
+                // Shadow-Resilient Bilinear: Use simple average of non-zero samples if edge case
+                float fallbackSum = 0; int fallbackCount = 0;
+                if (d00 > 0) { fallbackSum += d00; fallbackCount++; }
+                if (d10 > 0) { fallbackSum += d10; fallbackCount++; }
+                if (d01 > 0) { fallbackSum += d01; fallbackCount++; }
+                if (d11 > 0) { fallbackSum += d11; fallbackCount++; }
+                depthVal = fallbackCount > 0 ? (fallbackSum / fallbackCount) : 0;
+            }
 
-            if (depthVal > MinDepthMM && depthVal < MaxDepthMM)
-            {
-                float normalized = math.unlerp(MaxDepthMM, MinDepthMM, depthVal);
-                targetHeight = normalized * HeightScale;
+            // 2. ROBUST HEIGHT CALCULATION
+            if (depthVal <= 0) {
+                targetHeight = 0;
+            } else {
+                // NaN Guard
+                float range = math.abs(MaxDepthMM - MinDepthMM);
+                if (range < 0.001f) {
+                    targetHeight = 0;
+                } else {
+                    float normalized = (MaxDepthMM - depthVal) / (MaxDepthMM - MinDepthMM);
+                    targetHeight = math.saturate(normalized) * HeightScale;
+                }
             }
             
             // 2. Vertex Output
@@ -401,6 +434,7 @@ public class ARSandboxController : MonoBehaviour
             MinCutoff = MinCutoff,
             Beta = Beta,
             HandThreshold = HandFilterThreshold,
+            MaxDepth = MaxDepthMM, // Added for fallback
             RawInput = _filterInput,
             FilteredState = _filterState,
             PrevRaw = _filterPrevRaw,

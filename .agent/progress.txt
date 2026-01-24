@@ -22,10 +22,15 @@ Refactor massive `ARSandboxController.cs` into a modular provider-based architec
     - [x] Implementation
     - [x] Log Learning to `.agent/progress.txt`
     - [x] Evaluation & Commit
+- [x] Chunk 8: Shadow-Proof Stability (Gravity Well Fix)
+    - [x] Implementation (Refactor Job Pipeline)
+    - [x] Log Learning to progress.txt
+    - [x] Final Verification
 
 ## Task History
 ### 2026-01-24
-- **ID 12**: Synchronized Side Walls with main terrain and refactored material property syncing.
+- **ID 15**: Eliminated the "Gravity Well" effect. Refactored processed to keep shadows transparent, allowing smoothing passes to heal gaps with actual sand height rather than pulling them to the floor.
+- **ID 14**: Implemented robust error handling in `MeshGenJob`. Fixed "Huge Hole" regression by adding NaN safety and sensor shadow rejection. 	- **ID 13**: Optimized Simulation Provider using multi-threaded Burst Jobs. Switched to Simplex noise for speed. 	- **ID 12**: Synchronized Side Walls with main terrain and refactored material property syncing.
 - **ID 11**: Implemented Screenspace Sharp Contours (fixed merging on steep hills).
 - **ID 10**: Added "Color Spread" and height-sensitive noise suppression.
 - **ID 9**: Fixed "Black Hole" sensor artifacts with high-speed hole filling.
