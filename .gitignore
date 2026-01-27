@@ -39,5 +39,5 @@ Icon?
 ehthumbs.db
 Thumbs.db
 
-# AI / Agent Workspace (Macro/Micro Memory)
-/.agent/
+# Agent files
+.agent/
