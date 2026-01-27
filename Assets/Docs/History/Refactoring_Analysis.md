@@ -1,41 +1,54 @@
-# Refactoring Analysis: Naming Convention Violations 🔍
+# Refactoring Analysis: Coding Standard Violations 🔍
 
-**Standard:** 
-1. **Public/Inspector Fields:** MUST be `PascalCase`.
-2. **Private Fields:** SHOULD be `_camelCase` (underscored).
-3. **Methods:** MUST be `PascalCase`.
+This document tracks identified violations against [Coding_Standard.md](../Standards/Coding_Standard.md) and provides a safe implementation roadmap.
 
 ## 🚨 Identified Violations (ARSandboxController.cs)
 
-| Line | Type | Current Name (Violation) | Proposed Name (PascalCase) | Risk Level |
+### 1. Naming Conventions (Section 2)
+| Category | Current Name | Proposed Name | Risk | Mitigation |
 | :--- | :--- | :--- | :--- | :--- |
-| 226 | `GradientPreset` | `currentGradientPreset` | `CurrentGradientPreset` | 🟡 Medium (Inspector Reset) |
-| 227 | `bool` | `useDiscreteBands` | `UseDiscreteBands` | 🟡 Medium (Inspector Reset) |
-| 228 | `Gradient` | `elevationGradient` | `ElevationGradient` | 🟡 Medium (Inspector Reset) |
+| **Struct Field** | `SandboxSettings.minDepth` | `MinDepth` | 🔴 High (JSON Break) | Use `[JsonProperty]` or manual mapping. |
+| **Struct Field** | `SandboxSettings.maxDepth` | `MaxDepth` | 🔴 High (JSON Break) | Use `[JsonProperty]` or manual mapping. |
+| **Private Prop** | `SettingsPath` | `_settingsPath` | 🟢 Low | Internal reference update only. |
 
-*(Note: `DeviceIndex`, `Width`, `Length`, `MinDepthMM`, `EnableSimulation`, `NoiseScale`, `MoveSpeed` are already Correct)*
+### 2. Documentation Standards (Section 4.1)
+The following public methods are missing mandatory XML `<summary>` tags:
+- `RefreshCausticTexture()`
+- `UpdateMeshDimensions(float size)`
+- `SaveSettings()`
+- `LoadSettings()`
+- `CalibrateFloor()`
 
-## 🚨 Identified Violations (Private Fields - Consistency)
-Both `ARSandboxController.cs` and `SandboxUI.cs` should follow the `_camelCase` standard for private fields to avoid confusion with local variables.
+### 3. Performance Standards (Section 4.2)
+- **Log Stripping**: Multiple `Debug.Log` calls in `Start()`, `SwitchProvider()`, and `LoadSettings()` must be wrapped in a `[Conditional("DEVELOPMENT_BUILD")]` method.
+- **MeshData API**: The current implementation (Line 543) is already using MeshData (Correct), but needs clearer documentation.
 
-- **ARSandboxController:** `mesh` -> `_mesh`, `isRunning` -> `_isRunning`, `latestDepthFrame` -> `_latestDepthFrame`, etc.
-- **SandboxUI:** `uiRoot` -> `_uiRoot`, `isVisible` -> `_isVisible`, `heightSlider` -> `_heightSlider`, etc.
+## 🚨 Identified Violations (SandboxUI.cs)
 
-## ⚠️ Ripple Effects & Risks
+### 1. Naming Conventions
+- **Correct**: Most private fields already use the `_camelCase` prefix.
+- **Violation**: `public ARSandboxController Controller;` (Correct) vs any legacy `controller` references.
 
-### 1. Inspector Data Loss 📉
-Renaming `currentGradientPreset`, `useDiscreteBands`, and `elevationGradient` will cause Unity to reset their values. 
-**Mitigation:** Use `[FormerlySerializedAs("oldName")]`.
+### 2. UI Performance (Section 7)
+- **StringBuilder**: `_sb` is used correctly (Correct).
+- **Visibility**: Toggle uses `CanvasGroup.alpha` correctly (Correct).
 
-### 2. JSON Serialization Mapping 📄
-The `SandboxSettings` struct (Lines 30-44) currently uses `camelCase` (e.g., `noiseScale`).
-**Decision:** We will keep the Struct as `camelCase` (Legacy Data Standard) but rename the Controller fields to `PascalCase` (Code Standard). We must ensure `SaveSettings()` and `LoadSettings()` map them correctly.
+---
 
-### 3. SandboxUI References 💥
-`SandboxUI.cs` references several of these fields. They must be updated simultaneously.
+## 🛠️ Refactoring Roadmap (Safety First)
 
-## ☑️ Next Steps to Implement
-1. [ ] Apply `PascalCase` to remaining public fields in `ARSandboxController.cs` using `[FormerlySerializedAs]`.
-2. [ ] Refactor all private fields in `ARSandboxController.cs` and `SandboxUI.cs` to use the `_camelCase` prefix.
-3. [ ] Bulk replace references in `SandboxUI.cs`.
-4. [ ] Verify `SaveSettings()`/`LoadSettings()` logic remains functional.
+### Phase 1: Preparation (No Code Change)
+- [x] Identify all `SandboxUI` references to fields in `ARSandboxController`.
+- [x] Create this analysis report.
+
+### Phase 2: Metadata Layer
+- [ ] Add `[FormerlySerializedAs]` to all public field renames in the Controller.
+- [ ] Add `/// <summary>` tags to all public methods.
+
+### Phase 3: Field Renaming (Automation)
+- [ ] Mass-rename private fields to `_camelCase` where missing.
+- [ ] Mass-rename local variables to `camelCase` where missing.
+
+### Phase 4: Structural Fixes
+- [ ] Implement the `LogDebug` wrapper and replace all `Debug.Log` calls.
+- [ ] Update `SandboxSettings` JSON mapping to be case-insensitive or use explicit attributes.

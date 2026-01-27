@@ -3,12 +3,12 @@
   "WorkspaceRootPath": "D:\\motionsix\\Sandbox(new)\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|d:\\motionsix\\sandbox(new)\\assets\\sandboxui.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|solutionrelative:assets\\sandboxui.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|d:\\motionsix\\sandbox(new)\\assets\\arsandboxcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|solutionrelative:assets\\arsandboxcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|D:\\motionsix\\Sandbox(new)\\assets\\arsandboxcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|solutionrelative:assets\\arsandboxcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|D:\\motionsix\\Sandbox(new)\\assets\\sandboxui.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|solutionrelative:assets\\sandboxui.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|D:\\motionsix\\Sandbox(new)\\assets\\topography.shader||{3B902123-F8A7-4915-9F01-361F908088D0}",
@@ -22,11 +22,11 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 0,
+          "SelectedChildIndex": 1,
           "Children": [
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 1,
               "Title": "SandboxUI.cs",
               "DocumentMoniker": "D:\\motionsix\\Sandbox(new)\\Assets\\SandboxUI.cs",
               "RelativeDocumentMoniker": "Assets\\SandboxUI.cs",
@@ -34,20 +34,20 @@
               "RelativeToolTip": "Assets\\SandboxUI.cs",
               "ViewState": "AgIAADUCAAAAAAAAAIAwwD4CAAASAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-01-17T11:28:19.36Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-01-17T11:28:19.36Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 0,
               "Title": "ARSandboxController.cs",
               "DocumentMoniker": "D:\\motionsix\\Sandbox(new)\\Assets\\ARSandboxController.cs",
               "RelativeDocumentMoniker": "Assets\\ARSandboxController.cs",
               "ToolTip": "D:\\motionsix\\Sandbox(new)\\Assets\\ARSandboxController.cs",
               "RelativeToolTip": "Assets\\ARSandboxController.cs",
-              "ViewState": "AgIAANUAAAAAAAAAAIAwwN4AAAAdAAAAAAAAAA==",
+              "ViewState": "AgIAAEQDAAAAAAAAAIAwwFADAAAhAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-01-16T08:06:27.277Z"
+              "WhenOpened": "2026-01-16T08:06:27.277Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",

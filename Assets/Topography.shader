@@ -42,6 +42,13 @@ Shader "Custom/Topography"
         
         [Header(Color Blending)]
         _TintStrength ("Gradient Tint Strength", Range(0.0, 1.0)) = 0.5
+        _ColorShift ("Color Shift", Float) = 0.0
+
+        [Header(Water Caustics)]
+        _CausticTex ("Caustic Texture", 2D) = "black" {}
+        _CausticScale ("Caustic Scale", Float) = 0.5
+        _CausticSpeed ("Caustic Speed", Float) = 0.5
+        _CausticIntensity ("Caustic Intensity", Float) = 1.0
     }
     SubShader
     {
@@ -105,10 +112,17 @@ Shader "Custom/Topography"
                 
                 float _TintStrength;
                 float _ColorShift;
+
+                float _CausticScale;
+                float _CausticSpeed;
+                float _CausticIntensity;
             CBUFFER_END
 
             TEXTURE2D(_ColorRamp);
             SAMPLER(sampler_ColorRamp);
+
+            TEXTURE2D(_CausticTex);
+            SAMPLER(sampler_CausticTex);
 
             TEXTURE2D(_SandTex);
             TEXTURE2D(_SandNormal);
@@ -150,7 +164,7 @@ Shader "Custom/Topography"
 
                 // Weights (Sharp blending via pow 8)
                 float3 weights = pow(absNormal, 8.0);
-                weights = weights / (weights.x + weights.y + weights.z);
+                weights = weights / max(0.00001, weights.x + weights.y + weights.z);
 
                 // Conditional sampling (Optimization optional, but we do full for quality)
                 
@@ -188,20 +202,23 @@ Shader "Custom/Topography"
                 // --- SPARKLES (Glitter) ---
                 // Mask by Low Roughness (Smooth areas = wet/crystalline = sparkle)
                 // Inverted Roughness map can act as Sparkle Mask
-                float sparkleMask = 1.0 - sandRough.r;
+                // Inverted Roughness map acts as Sparkle Mask
+                float sparkleMask = saturate(1.0 - sandRough.r);
                 if (sparkleMask > _SparkleThreshold)
                 {
-                    // View-Dependent Sparkling
-                    // Ideally we'd use Blue Noise, but here we use Roughness high-freq details or procedural noise
-                    // A simple pseudo-random flicker based on ViewDir and Position
+                    // Use World Space Position for stable grains
                     float3 glitterVec = floor(IN.positionWS * _SparkleScale);
                     float noise = frac(sin(dot(glitterVec, float3(12.9898, 78.233, 45.164))) * 43758.5453);
                     
-                    float viewDependence = dot(normalize(glitterVec), viewDir); // Fake facet alignment
-                    if (abs(viewDependence) > 0.9 && noise > 0.5)
-                    {
-                        sandAlbedo += _SparkleIntensity * (sparkleMask - _SparkleThreshold);
+                    // Smooth Specular Glint (Smoothstep prevents 'strobe' flashes)
+                    // Added safety check for normalize() to prevent NaNs at origin
+                    float viewDependence = 0.0;
+                    if (any(glitterVec)) {
+                        viewDependence = dot(normalize(glitterVec), viewDir); 
                     }
+                    float glint = smoothstep(0.8, 1.0, viewDependence * noise);
+                    
+                    sandAlbedo.rgb += glint * _SparkleIntensity * (sparkleMask - _SparkleThreshold);
                 }
 
                 // --- COLOR MAPPING MIX ---
@@ -254,9 +271,15 @@ Shader "Custom/Topography"
                 float distToLine = (min(frac(contourGrid), 1.0 - frac(contourGrid))) / fw;
                 
                 // Calculate line strength using a pixel-based thickness
-                // 0.5 is a good baseline for smooth antialiased lines
                 float lineStrength = smoothstep(_ContourThickness, 0.0, distToLine);
                 
+                // --- Slope-Based Masking (Fix for Black Peak Blobs) ---
+                // We calculate the gradient magnitude (slope). If the slope is zero (flat peak), 
+                // we fade out the contour to prevent it from 'blobbing' over the entire plateau.
+                float slope = length(float2(ddx(height), ddy(height)));
+                float plateauMask = smoothstep(0.0, 0.001, slope); // Fade out if slope < 0.001
+                lineStrength *= plateauMask;
+
                 // Apply Contour
                 terrainColor = lerp(terrainColor, _ContourColor, lineStrength);
 
@@ -293,11 +316,31 @@ Shader "Custom/Topography"
                     
                     half4 waterFinal = _WaterColor + (specular * _SpecularColor) + (fresnel * 0.5 * _WaterColor);
                     
+                    // First, blend the sand with the water color
                     terrainColor = lerp(terrainColor, waterFinal, opacity);
+                    
+                    // --- CAUSTICS (Applies "through" the water volume) ---
+                    // Project the caustic texture twice with different scales and speeds
+                    float2 refraction = float2(wave * 0.02, wave * 0.02);
+                    float2 causticUV1 = (IN.positionWS.xz + refraction) * _CausticScale + _Time.y * _CausticSpeed;
+                    float2 causticUV2 = (IN.positionWS.xz - refraction) * (_CausticScale * 0.77) - _Time.y * (_CausticSpeed * 0.6);
+                    
+                    half4 c1 = SAMPLE_TEXTURE2D(_CausticTex, sampler_CausticTex, causticUV1);
+                    half4 c2 = SAMPLE_TEXTURE2D(_CausticTex, sampler_CausticTex, causticUV2);
+                    
+                    // Sharpen and Combine: Squaring the result makes the light "webs" thinner and brighter
+                    float causticPattern = pow(abs(c1.r * c2.r), 1.5); 
+                    
+                    // Museum Punch: Applied after the water blend so it pierces through the blue opacity
+                    float causticDepthFade = saturate(waterDepth * 5.0);
+                    terrainColor.rgb += causticPattern * _CausticIntensity * causticDepthFade * 5.0;
                 }
 
                 // --- 4. Brightness Adjustment (Wall Dimming) ---
                 terrainColor.rgb *= _Brightness;
+                
+                // FINAL SAFETY CLAMP: Prevents random NaNs or Infinity from flashing the screen
+                terrainColor.rgb = saturate(terrainColor.rgb);
 
                 return terrainColor;
             }

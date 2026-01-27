@@ -1,47 +1,20 @@
-# Progress Log: AR Sandbox Refactor
+# Progress Log (Active Chunk: 4)
+**Focus**: JSON Persistence Fix (SandboxSettings)
 
-## Current Goal
-Refactor massive `ARSandboxController.cs` into a modular provider-based architecture and add operational polish.
+This file is for **micro-tasks** within the current chunk. For the full project roadmap, see [Chunks_Overview.md](./Chunks_Overview.md).
 
-## Implementation Chunks
-- [x] Chunk 0: Framework Setup (Workflow & Doc creation)
-- [x] Chunk 1: Provider Refactor (Architectural Split) - *Implemented by Agent*
-    - **Learning**: Extracting hardware dependencies helps isolate potential DLL errors from the main loop.
-- [x] Chunk 2: Operational Polish (Smoothing & Health Monitoring)
-    - [x] Fix UI Toggle (Tab/Tilde) & Input Safety
-    - [x] Real-time Simulation Settings (Noise/Speed)
-    - [x] Jitter Analysis & 1€ Filter Implementation (Burst Optimized)
-- [x] Chunk 3: UX Alignment (Visual Guides & Feedback)
-    - [x] Plain English UI Labels
-    - [x] Atmospheric Presets (Volcano, Ocean, Oasis)
-    - [x] Hand Filtering (ignore sudden depth jumps)
-    - [x] Auto-Hide Admin Panel
-    - [x] Screenspace Sharp Contours (no merging)
-    - [x] Hole Filling & Sensor Noise Suppression
-- [x] Chunk 4: Side Wall Sync & Material Refactor
-    - [x] Implementation
-    - [x] Log Learning to `.agent/progress.txt`
-    - [x] Evaluation & Commit
-- [x] Chunk 8: Shadow-Proof Stability (Gravity Well Fix)
-    - [x] Implementation (Refactor Job Pipeline)
-    - [x] Log Learning to progress.txt
-    - [x] Final Verification
+---
 
-## Task History
-### 2026-01-24
-- **ID 15**: Eliminated the "Gravity Well" effect. Refactored processed to keep shadows transparent, allowing smoothing passes to heal gaps with actual sand height rather than pulling them to the floor.
-- **ID 14**: Implemented robust error handling in `MeshGenJob`. Fixed "Huge Hole" regression by adding NaN safety and sensor shadow rejection. 	- **ID 13**: Optimized Simulation Provider using multi-threaded Burst Jobs. Switched to Simplex noise for speed. 	- **ID 12**: Synchronized Side Walls with main terrain and refactored material property syncing.
-- **ID 11**: Implemented Screenspace Sharp Contours (fixed merging on steep hills).
-- **ID 10**: Added "Color Spread" and height-sensitive noise suppression.
-- **ID 9**: Fixed "Black Hole" sensor artifacts with high-speed hole filling.
-- **ID 8**: Completed UX Alignment Overhaul. Added Hand Filtering and simplified UI.
-- **ID 7**: Implemented "Gold Standard" 1€ Filter using Unity Burst/Jobs.
-- **ID 3**: Validated and Fixed SandboxUI (Tab toggle, input handling).
-- **ID 4**: Fixed CS0252 Compiler Warnings in Controller.
-- **ID 5**: Enabled real-time updates for Simulation settings (Noise/Speed).
-- **ID 6**: Researched UC Davis methods and planned adaptive smoothing.
+## Current Micro-Tasks (Chunk 4)
+- [x] **Audit Save/Load Logic**: Renames confirmed and logic updated.
+- [x] **Verify Default Values**: Added safe fallbacks for Caustics and Sparkles.
+- [x] **Data Security Pass**: Implemented length checks and ranges for loaded data.
 
-### 2026-01-23
-- **ID 1**: Established "Ralph Enhanced" Chunked Implementation Framework.
-- **ID 2**: Created `AGENTS.md` and `progress.txt` for memory persistence.
-- **Learning**: Interface-driven design is critical for hardware-agnostic AR systems.
+---
+**CHUNK 4 COMPLETE** ✅
+**FULL REFACTOR COMPLETE** 🎉
+
+---
+
+## Bug Discovery & Interruption Log
+- (None since last chunk sync)

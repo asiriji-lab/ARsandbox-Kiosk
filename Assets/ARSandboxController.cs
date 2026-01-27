@@ -37,28 +37,35 @@ public class ARSandboxController : MonoBehaviour
     [Serializable]
     public struct SandboxSettings
     {
-        public float minDepth;
-        public float maxDepth;
-        public float heightScale;
-        public float noiseScale; // Legacy support
-        public float moveSpeed;  // Legacy support
-        public float meshSize;
-        public bool flatMode;
-        public float tintStrength;
-        public float sandScale;
-        public float waterLevel;
-        public float colorShift;
-        public float contourInterval;
-        public float contourThickness;
-        public float smoothingFactor;
-        public float minCutoff;
-        public float beta;
-        public float handThreshold;
-        public int spatialBlur;
-        public Vector2[] calibrationPoints; 
+        [FormerlySerializedAs("minDepth")] public float MinDepth;
+        [FormerlySerializedAs("maxDepth")] public float MaxDepth;
+        [FormerlySerializedAs("heightScale")] public float HeightScale;
+        [FormerlySerializedAs("noiseScale")] public float NoiseScale; // Legacy support
+        [FormerlySerializedAs("moveSpeed")] public float MoveSpeed;  // Legacy support
+        [FormerlySerializedAs("meshSize")] public float MeshSize;
+        [FormerlySerializedAs("flatMode")] public bool FlatModeField; // Renamed to avoid collision with controller property
+        [FormerlySerializedAs("tintStrength")] public float TintStrength;
+        [FormerlySerializedAs("sandScale")] public float SandScale;
+        [FormerlySerializedAs("waterLevel")] public float WaterLevel;
+        [FormerlySerializedAs("waterOpacity")] public float WaterOpacity;
+        [FormerlySerializedAs("waterColor")] public Color WaterColor;
+        [FormerlySerializedAs("colorShift")] public float ColorShift;
+        [FormerlySerializedAs("contourInterval")] public float ContourInterval;
+        [FormerlySerializedAs("contourThickness")] public float ContourThickness;
+        [FormerlySerializedAs("smoothingFactor")] public float SmoothingFactor;
+        [FormerlySerializedAs("minCutoff")] public float MinCutoff;
+        [FormerlySerializedAs("beta")] public float Beta;
+        [FormerlySerializedAs("handThreshold")] public float HandThreshold;
+        [FormerlySerializedAs("spatialBlur")] public int SpatialBlur;
+        [FormerlySerializedAs("sparkleIntensity")] public float SparkleIntensity;
+        [FormerlySerializedAs("causticIntensity")] public float CausticIntensity;
+        [FormerlySerializedAs("causticScale")] public float CausticScale;
+        [FormerlySerializedAs("causticSpeed")] public float CausticSpeed;
+        [FormerlySerializedAs("calibrationPoints")] public Vector2[] CalibrationPoints; 
     }
     
     // Legacy support for UI binding (These will be passed to provider or shader)
+    [Range(0f, 0.15f)]
     public float NoiseScale = 0.1f;
     public float MoveSpeed = 0.5f;
 
@@ -87,6 +94,9 @@ public class ARSandboxController : MonoBehaviour
     public float SandScale = 10.0f;
     [Range(0f, 10f)]
     public float WaterLevel = 0.5f;
+    [Range(0f, 2f)]
+    public float WaterOpacity = 0.6f;
+    public Color WaterColor = new Color(0, 0.2f, 1f, 1f);
     [Range(-0.5f, 0.5f)]
     public float ColorShift = 0.0f; // Manual push of colors down the hill
 
@@ -94,6 +104,19 @@ public class ARSandboxController : MonoBehaviour
     public float ContourInterval = 0.5f;
     [Range(0.1f, 5.0f)]
     public float ContourThickness = 1.0f; // Pixel width logic now
+
+    [Header("Sparkles")]
+    [Range(0f, 5f)]
+    public float SparkleIntensity = 1.0f;
+
+    [Header("Water Caustics")]
+    public Texture2D CausticTexture;
+    [Range(0f, 2f)]
+    public float CausticIntensity = 0.5f;
+    [Range(0f, 0.15f)]
+    public float CausticScale = 2.0f;
+    [Range(0f, 2f)]
+    public float CausticSpeed = 0.5f;
 
     public enum GradientPreset { UCDavis, Desert, Natural, Heat, Grayscale }
     public GradientPreset CurrentGradientPreset = GradientPreset.UCDavis;
@@ -130,7 +153,7 @@ public class ARSandboxController : MonoBehaviour
     private ushort[] _filteredData;
     private int _filterResolution = -1;
 
-    private string SettingsPath => System.IO.Path.Combine(Application.persistentDataPath, "sandbox_settings.json");
+    private string _settingsPath => System.IO.Path.Combine(Application.persistentDataPath, "sandbox_settings.json");
 
     void Awake()
     {
@@ -158,6 +181,39 @@ public class ARSandboxController : MonoBehaviour
         {
             new GameObject("SandboxUI").AddComponent<SandboxUI>();
         }
+
+        // Try to auto-load the caustic texture if missing
+        if (CausticTexture == null)
+        {
+            // Official way for Build
+            CausticTexture = Resources.Load<Texture2D>("WaterCaustics"); 
+            
+            #if UNITY_EDITOR
+            // Fallback for Editor (if not imported to Resources yet)
+            if (CausticTexture == null) {
+                string[] guids = UnityEditor.AssetDatabase.FindAssets("WaterCaustics t:Texture2D");
+                if (guids.Length > 0) {
+                    string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guids[0]);
+                    CausticTexture = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+                }
+            }
+            #endif
+        }
+
+        if (CausticTexture != null) {
+            Debug.Log($"<color=cyan>[Sandbox]</color> Water Caustics loaded: {CausticTexture.name}");
+        } else {
+            Debug.LogWarning("<color=orange>[Sandbox]</color> Water Caustics texture is MISSING. Please assign 'WaterCaustics' in the Inspector.");
+        }
+    }
+
+    /// <summary>
+    /// Forces a refresh of the caustic texture by clearing the reference and re-running the search logic.
+    /// </summary>
+    [ContextMenu("Refresh Caustic Texture")]
+    public void RefreshCausticTexture() {
+        CausticTexture = null;
+        Start(); // Re-run start logic to find texture
     }
 
     void SwitchProvider(bool useSim)
@@ -211,6 +267,7 @@ public class ARSandboxController : MonoBehaviour
         public float Beta;
         public float HandThreshold;
         public float MaxDepth;
+        public bool SkipHandRejection; // Bypass "Freeze" for high speed simulation
         
         [ReadOnly] public NativeArray<ushort> RawInput;
         public NativeArray<float> FilteredState;
@@ -242,8 +299,8 @@ public class ARSandboxController : MonoBehaviour
             
             // Hand Rejection: If change is too violent, aggressively smooth to stay on sand
             // FIX: Only apply rejection if we already have a reasonably non-zero height
-            // This prevents the filter from freezing on startup (jumping from 0 to 1500mm)
-            if (math.abs(dx) * DeltaTime > HandThreshold && FilteredState[i] > 10.0f) {
+            // AND we are not in high-speed simulation mode
+            if (!SkipHandRejection && math.abs(dx) * DeltaTime > HandThreshold && FilteredState[i] > 10.0f) {
                 cutoff = MinCutoff * 0.1f; // Freeze
             }
 
@@ -327,6 +384,14 @@ public class ARSandboxController : MonoBehaviour
         [NativeDisableParallelForRestriction]
         [WriteOnly] public NativeArray<TerrainVertex> OutputVerts;
 
+        float CubicWeight(float x)
+        {
+            float absX = math.abs(x);
+            if (absX <= 1.0f) return 1.5f * absX * absX * absX - 2.5f * absX * absX + 1.0f;
+            if (absX <= 2.0f) return -0.5f * absX * absX * absX + 2.5f * absX * absX - 4.0f * absX + 2.0f;
+            return 0.0f;
+        }
+
         public void Execute(int i)
         {
             int z = i / Resolution;
@@ -356,26 +421,39 @@ public class ARSandboxController : MonoBehaviour
             int x1 = math.min(x0 + 1, DepthW - 1);
             int y1 = math.min(y0 + 1, DepthH - 1);
             
-            float fX = texX - x0;
-            float fY = texY - y0;
-
-            float d00 = (float)DepthData[y0 * DepthW + x0];
-            float d10 = (float)DepthData[y0 * DepthW + x1];
-            float d01 = (float)DepthData[y1 * DepthW + x0];
-            float d11 = (float)DepthData[y1 * DepthW + x1];
-
+            // 1. Calculate Height (Bicubic 16-tap kernel for ultra-smooth peaks)
             float depthVal = 0;
-            if (d00 > 0 && d10 > 0 && d01 > 0 && d11 > 0) {
-                depthVal = math.lerp(math.lerp(d00, d10, fX), math.lerp(d01, d11, fX), fY);
-            } else {
-                // Shadow-Resilient Bilinear: Use simple average of non-zero samples if edge case
-                float fallbackSum = 0; int fallbackCount = 0;
-                if (d00 > 0) { fallbackSum += d00; fallbackCount++; }
-                if (d10 > 0) { fallbackSum += d10; fallbackCount++; }
-                if (d01 > 0) { fallbackSum += d01; fallbackCount++; }
-                if (d11 > 0) { fallbackSum += d11; fallbackCount++; }
-                depthVal = fallbackCount > 0 ? (fallbackSum / fallbackCount) : 0;
+            
+            int ix = (int)math.floor(texX);
+            int iy = (int)math.floor(texY);
+            float fx = texX - ix;
+            float fy = texY - iy;
+
+            float totalWeight = 0;
+            float sampleSum = 0;
+
+            // Bicubic weight function (Cubic Hermite Spline)
+            // Using a simple 4x4 kernel
+            for (int j = -1; j <= 2; j++)
+            {
+                int py = math.clamp(iy + j, 0, DepthH - 1);
+                float wy = CubicWeight(j - fy);
+                
+                for (int m = -1; m <= 2; m++)
+                {
+                    int px = math.clamp(ix + m, 0, DepthW - 1);
+                    float wx = CubicWeight(m - fx);
+                    
+                    float d = (float)DepthData[py * DepthW + px];
+                    if (d > 0)
+                    {
+                        float weight = wx * wy;
+                        sampleSum += d * weight;
+                        totalWeight += weight;
+                    }
+                }
             }
+            depthVal = totalWeight > 0.001f ? (sampleSum / totalWeight) : 0;
 
             // 2. ROBUST HEIGHT CALCULATION
             if (depthVal <= 0) {
@@ -435,6 +513,7 @@ public class ARSandboxController : MonoBehaviour
             Beta = Beta,
             HandThreshold = HandFilterThreshold,
             MaxDepth = MaxDepthMM, // Added for fallback
+            SkipHandRejection = EnableSimulation, // Bypassing for fast sim
             RawInput = _filterInput,
             FilteredState = _filterState,
             PrevRaw = _filterPrevRaw,
@@ -550,10 +629,18 @@ public class ARSandboxController : MonoBehaviour
         _rawDepthTexture.Apply();
     }
 
+    /// <summary>
+    /// Returns the raw depth texture used for debugging and calibration overlays.
+    /// </summary>
+    /// <returns>The generated R8 depth texture.</returns>
     public Texture GetRawDepthTexture() => _rawDepthTexture;
 
     // --- Legacy / Shared Systems (Walls, Colors, etc) ---
 
+    /// <summary>
+    /// Recalibrates the Min and Max depth range based on the current average sensor readings.
+    /// Useful for zeroing out the sandbox background.
+    /// </summary>
     public void CalibrateFloor()
     {
         if (_activeProvider == null || !_activeProvider.IsRunning) return;
@@ -699,6 +786,10 @@ public class ARSandboxController : MonoBehaviour
         if (_vertices == null || _vertices.Length != requiredVerts || _triangles == null) { InitMesh(); }
     }
 
+    /// <summary>
+    /// Updates the physical dimensions of the terrain mesh and recalculates vertex spacing.
+    /// </summary>
+    /// <param name="size">The new size (Width and Length) in Unity units.</param>
     public void UpdateMeshDimensions(float size) {
         Width = size; Length = size;
         for (int z = 0; z < MeshResolution; z++) {
@@ -715,39 +806,61 @@ public class ARSandboxController : MonoBehaviour
         // _heightVelocities = new float[_vertices.Length]; 
     }
 
+    /// <summary>
+    /// Serializes current sandbox settings to a JSON file in the persistent data path.
+    /// </summary>
     public void SaveSettings() {
         SandboxSettings data = new SandboxSettings {
-            minDepth = MinDepthMM, maxDepth = MaxDepthMM, heightScale = HeightScale,
-            noiseScale = NoiseScale, moveSpeed = MoveSpeed, meshSize = Width, flatMode = FlatMode,
-            tintStrength = TintStrength, sandScale = SandScale, waterLevel = WaterLevel,
-            colorShift = ColorShift,
-            contourInterval = ContourInterval, contourThickness = ContourThickness,
-            // smoothingFactor = SmoothingFactor,
-            minCutoff = MinCutoff, beta = Beta, handThreshold = HandFilterThreshold,
-            spatialBlur = SpatialBlurIterations,
-            calibrationPoints = CalibrationPoints
+            MinDepth = MinDepthMM, MaxDepth = MaxDepthMM, HeightScale = HeightScale,
+            NoiseScale = NoiseScale, MoveSpeed = MoveSpeed, MeshSize = Width, FlatModeField = FlatMode,
+            TintStrength = TintStrength, SandScale = SandScale, WaterLevel = WaterLevel,
+            WaterOpacity = WaterOpacity, WaterColor = WaterColor,
+            ColorShift = ColorShift,
+            ContourInterval = ContourInterval, ContourThickness = ContourThickness,
+            // SmoothingFactor = SmoothingFactor,
+            MinCutoff = MinCutoff,
+            SparkleIntensity = SparkleIntensity, 
+            Beta = Beta, HandThreshold = HandFilterThreshold,
+            SpatialBlur = SpatialBlurIterations,
+            CausticIntensity = CausticIntensity,
+            CausticScale = CausticScale,
+            CausticSpeed = CausticSpeed,
+            CalibrationPoints = CalibrationPoints
         };
-        System.IO.File.WriteAllText(SettingsPath, JsonUtility.ToJson(data, true));
+        System.IO.File.WriteAllText(_settingsPath, JsonUtility.ToJson(data, true));
     }
+    /// <summary>
+    /// Deserializes sandbox settings from the persistent JSON file and applies them to the controller.
+    /// </summary>
     public void LoadSettings() {
-        if (System.IO.File.Exists(SettingsPath)) {
+        if (System.IO.File.Exists(_settingsPath)) {
             try {
-                SandboxSettings data = JsonUtility.FromJson<SandboxSettings>(System.IO.File.ReadAllText(SettingsPath));
-                if (data.maxDepth > 0.1f) {
-                    MinDepthMM = data.minDepth; MaxDepthMM = data.maxDepth; HeightScale = data.heightScale;
-                    NoiseScale = data.noiseScale; MoveSpeed = data.moveSpeed; 
-                    if (data.meshSize > 1f) UpdateMeshDimensions(data.meshSize);
-                    FlatMode = data.flatMode; TintStrength = data.tintStrength; 
-                    SandScale = data.sandScale; WaterLevel = data.waterLevel;
-                    ColorShift = data.colorShift;
-                    ContourInterval = data.contourInterval > 0 ? data.contourInterval : 0.5f;
-                    ContourThickness = data.contourThickness > 0 ? data.contourThickness : 1.0f;
-                    // SmoothingFactor = data.smoothingFactor; 
-                    if (data.minCutoff > 0) MinCutoff = data.minCutoff;
-                    if (data.beta > 0) Beta = data.beta;
-                    if (data.handThreshold > 0) HandFilterThreshold = data.handThreshold;
-                    SpatialBlurIterations = data.spatialBlur;
-                    CalibrationPoints = data.calibrationPoints;
+                SandboxSettings data = JsonUtility.FromJson<SandboxSettings>(System.IO.File.ReadAllText(_settingsPath));
+                if (data.MaxDepth > 0.1f) {
+                    MinDepthMM = data.MinDepth; MaxDepthMM = data.MaxDepth; HeightScale = data.HeightScale;
+                    NoiseScale = data.NoiseScale; MoveSpeed = data.MoveSpeed; 
+                    if (data.MeshSize > 1f) UpdateMeshDimensions(data.MeshSize);
+                    FlatMode = data.FlatModeField; TintStrength = data.TintStrength; 
+                    SandScale = data.SandScale; WaterLevel = data.WaterLevel;
+                    WaterOpacity = data.WaterOpacity > 0 ? data.WaterOpacity : 0.6f;
+                    if (data.WaterColor.a > 0.01f) WaterColor = data.WaterColor;
+                    ColorShift = data.ColorShift;
+                    ContourInterval = data.ContourInterval > 0 ? data.ContourInterval : 0.5f;
+                    // SmoothingFactor = data.SmoothingFactor; 
+                    if (data.MinCutoff > 0) MinCutoff = data.MinCutoff;
+                    if (data.Beta > 0) Beta = data.Beta;
+                    if (data.HandThreshold > 0) HandFilterThreshold = data.HandThreshold;
+                    SpatialBlurIterations = data.SpatialBlur;
+                    
+                    SparkleIntensity = data.SparkleIntensity > 0 ? data.SparkleIntensity : 1.0f;
+                    
+                    // Safe Defaults for new museum settings if loading from old settings file
+                    CausticIntensity = data.CausticIntensity > 0 ? data.CausticIntensity : 0.5f;
+                    CausticScale = (data.CausticScale > 0 && data.CausticScale < 10.0f) ? data.CausticScale : 0.05f;
+                    CausticSpeed = data.CausticSpeed > 0 ? data.CausticSpeed : 0.5f;
+
+                    if (data.CalibrationPoints != null && data.CalibrationPoints.Length == 4)
+                        CalibrationPoints = data.CalibrationPoints;
                 }
             } catch (Exception e) { Debug.LogError($"Failed to load settings: {e.Message}"); }
         }
@@ -766,12 +879,24 @@ public class ARSandboxController : MonoBehaviour
         props.SetTexture("_ColorRamp", _colorRampTexture);
         props.SetFloat("_HeightMax", HeightScale);
         props.SetFloat("_TintStrength", TintStrength);
+        props.SetFloat("_SparkleIntensity", SparkleIntensity);
         props.SetFloat("_SandScale", SandScale);
         props.SetFloat("_WaterLevel", WaterLevel);
+        props.SetFloat("_WaterOpacity", WaterOpacity);
+        props.SetColor("_WaterColor", WaterColor);
         props.SetFloat("_ColorShift", ColorShift);
         props.SetFloat("_ContourThickness", ContourThickness);
         props.SetFloat("_ContourInterval", ContourInterval);
         props.SetFloat("_DiscreteBands", UseDiscreteBands ? 1.0f : 0.0f);
+
+        // Ensure texture is bound (Fallback to Resources if inspector reference broke during file move)
+        if (CausticTexture == null) CausticTexture = Resources.Load<Texture2D>("WaterCaustics");
+        if (CausticTexture != null) props.SetTexture("_CausticTex", CausticTexture);
+        
+        props.SetFloat("_CausticIntensity", CausticIntensity);
+        props.SetFloat("_CausticScale", CausticScale);
+        props.SetFloat("_CausticSpeed", CausticSpeed);
+        
         props.SetFloat("_Brightness", isWall ? 0.6f : 1.0f);
         
         renderer.SetPropertyBlock(props);

@@ -94,8 +94,8 @@ public class SimulatedDepthProvider : MonoBehaviour, IDepthProvider
 
     void GenerateFrame()
     {
-        _noiseOffsetX += Time.deltaTime * MoveSpeed;
-        _noiseOffsetZ += Time.deltaTime * MoveSpeed * 0.5f;
+        _noiseOffsetX = (_noiseOffsetX + Time.deltaTime * MoveSpeed) % 1000f;
+        _noiseOffsetZ = (_noiseOffsetZ + Time.deltaTime * MoveSpeed * 0.5f) % 1000f;
 
         var job = new SimNoiseJob
         {

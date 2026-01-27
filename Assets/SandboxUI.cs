@@ -55,6 +55,11 @@ public class SandboxUI : MonoBehaviour
     private Slider _handRejectionSlider;
     private Slider _boundsSizeSlider;
     private Slider _lineSmoothSlider;
+    private Slider _causticIntensitySlider;
+    private Slider _causticScaleSlider;
+    private Slider _causticSpeedSlider;
+    private Slider _waterOpacitySlider;
+    private Slider _sparkleIntensitySlider;
     
     // Labels
     private Text _heightLabel;
@@ -74,6 +79,11 @@ public class SandboxUI : MonoBehaviour
     private Text _moveSpeedLabel;
     private Text _boundsSizeLabel;
     private Text _lineSmoothLabel;
+    private Text _causticIntensityLabel;
+    private Text _causticScaleLabel;
+    private Text _causticSpeedLabel;
+    private Text _waterOpacityLabel;
+    private Text _sparkleIntensityLabel;
     private Text _calibrationResultLabel;
 
     // Optimization: Cached Strings
@@ -443,10 +453,10 @@ public class SandboxUI : MonoBehaviour
         // Actually, let's just make it a hollow Frame using standard Unity technique:
         // A full rect with mask? No.
         // Let's just make 4 strips.
-        CreateBorderStrip(borderObj.transform, "Top", AnchorTop); 
-        CreateBorderStrip(borderObj.transform, "Bottom", AnchorBottom);
-        CreateBorderStrip(borderObj.transform, "Left", AnchorLeft);
-        CreateBorderStrip(borderObj.transform, "Right", AnchorRight);
+        CreateBorderStrip(borderObj.transform, "Top", _anchorTop); 
+        CreateBorderStrip(borderObj.transform, "Bottom", _anchorBottom);
+        CreateBorderStrip(borderObj.transform, "Left", _anchorLeft);
+        CreateBorderStrip(borderObj.transform, "Right", _anchorRight);
         
         // Hide base image to keep just the strips? 
         DestroyImmediate(border); 
@@ -455,10 +465,10 @@ public class SandboxUI : MonoBehaviour
     }
     
     // Helpers for border
-    Vector2 AnchorTop = new Vector2(0.5f, 1);
-    Vector2 AnchorBottom = new Vector2(0.5f, 0);
-    Vector2 AnchorLeft = new Vector2(0, 0.5f);
-    Vector2 AnchorRight = new Vector2(1, 0.5f);
+    private Vector2 _anchorTop = new Vector2(0.5f, 1);
+    private Vector2 _anchorBottom = new Vector2(0.5f, 0);
+    private Vector2 _anchorLeft = new Vector2(0, 0.5f);
+    private Vector2 _anchorRight = new Vector2(1, 0.5f);
 
     void CreateBorderStrip(Transform parent, string name, Vector2 anchor)
     {
@@ -673,6 +683,7 @@ public class SandboxUI : MonoBehaviour
         _sandScaleSlider = CreateSliderRow(_viewTab.transform, res, "Texture Detail", 1f, 50f, Controller.SandScale, out _sandScaleLabel, (v) => {
             Controller.SandScale = v;
             Controller.UpdateMaterialProperties();
+            Controller.SaveSettings();
         });
 
         _waterLevelSlider = CreateSliderRow(_viewTab.transform, res, "Water Level", 0f, 10f, Controller.WaterLevel, out _waterLevelLabel, (v) => {
@@ -683,6 +694,38 @@ public class SandboxUI : MonoBehaviour
 
         _colorShiftSlider = CreateSliderRow(_viewTab.transform, res, "Color Spread", -0.5f, 0.5f, Controller.ColorShift, out _colorShiftLabel, (v) => {
             Controller.ColorShift = v;
+            Controller.UpdateMaterialProperties();
+            Controller.SaveSettings();
+        });
+
+        CreateHeader(_viewTab.transform, "WATER & CAUSTICS", Color.cyan);
+
+        _waterOpacitySlider = CreateSliderRow(_viewTab.transform, res, "Water Opacity", 0f, 1f, Controller.WaterOpacity, out _waterOpacityLabel, (v) => {
+            Controller.WaterOpacity = v;
+            Controller.UpdateMaterialProperties();
+            Controller.SaveSettings();
+        });
+
+        _causticIntensitySlider = CreateSliderRow(_viewTab.transform, res, "Caustic Brightness", 0f, 2f, Controller.CausticIntensity, out _causticIntensityLabel, (v) => {
+            Controller.CausticIntensity = v;
+            Controller.UpdateMaterialProperties();
+            Controller.SaveSettings();
+        });
+
+        _causticScaleSlider = CreateSliderRow(_viewTab.transform, res, "Caustic Pattern Size", 0f, 0.15f, Controller.CausticScale, out _causticScaleLabel, (v) => {
+            Controller.CausticScale = v;
+            Controller.UpdateMaterialProperties();
+            Controller.SaveSettings();
+        });
+
+        _causticSpeedSlider = CreateSliderRow(_viewTab.transform, res, "Caustic Shimmer", 0f, 2f, Controller.CausticSpeed, out _causticSpeedLabel, (v) => {
+            Controller.CausticSpeed = v;
+            Controller.UpdateMaterialProperties();
+            Controller.SaveSettings();
+        });
+
+        _sparkleIntensitySlider = CreateSliderRow(_viewTab.transform, res, "Sand Sparkle", 0f, 5f, Controller.SparkleIntensity, out _sparkleIntensityLabel, (v) => {
+            Controller.SparkleIntensity = v;
             Controller.UpdateMaterialProperties();
             Controller.SaveSettings();
         });
@@ -721,6 +764,8 @@ public class SandboxUI : MonoBehaviour
 
         CreateToggle(_viewTab.transform, res, "Discrete Bands (Topographic)", Controller.UseDiscreteBands, (v) => {
             Controller.UseDiscreteBands = v;
+            Controller.UpdateMaterialProperties();
+            Controller.SaveSettings();
         });
     }
 
@@ -791,7 +836,7 @@ public class SandboxUI : MonoBehaviour
             Controller.EnableSimulation = v;
         });
 
-        CreateSliderRow(_worldTab.transform, res, "Terrain Chaos", 0.01f, 0.3f, Controller.NoiseScale, out _noiseScaleLabel, (v) => {
+        CreateSliderRow(_worldTab.transform, res, "Terrain Chaos", 0f, 0.15f, Controller.NoiseScale, out _noiseScaleLabel, (v) => {
             Controller.NoiseScale = v;
             Controller.SaveSettings();
         });
@@ -880,6 +925,7 @@ public class SandboxUI : MonoBehaviour
         
         Text t = tObj.AddComponent<Text>();
         t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        t.fontStyle = FontStyle.Bold;
         t.text = content;
         t.fontSize = size;
         t.color = col;
@@ -917,6 +963,7 @@ public class SandboxUI : MonoBehaviour
             txt.color = Color.white;
             txt.fontSize = 18;
             txt.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            txt.fontStyle = FontStyle.Bold;
         }
 
         RectTransform rt = tObj.GetComponent<RectTransform>();
@@ -935,6 +982,7 @@ public class SandboxUI : MonoBehaviour
         if (t) {
             t.text = label;
             t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            t.fontStyle = FontStyle.Bold;
         }
         
         RectTransform rt = bObj.GetComponent<RectTransform>();
@@ -1030,6 +1078,31 @@ public class SandboxUI : MonoBehaviour
         if (_moveSpeedLabel) {
             _sb.Clear(); _sb.Append("v: ").Append(Controller.MoveSpeed.ToString("F2"));
             _moveSpeedLabel.text = _sb.ToString();
+        }
+
+        if (_causticIntensityLabel) {
+            _sb.Clear(); _sb.Append("x: ").Append(Controller.CausticIntensity.ToString("F2"));
+            _causticIntensityLabel.text = _sb.ToString();
+        }
+
+        if (_causticScaleLabel) {
+            _sb.Clear(); _sb.Append("x: ").Append(Controller.CausticScale.ToString("F3"));
+            _causticScaleLabel.text = _sb.ToString();
+        }
+
+        if (_causticSpeedLabel) {
+            _sb.Clear(); _sb.Append("v: ").Append(Controller.CausticSpeed.ToString("F2"));
+            _causticSpeedLabel.text = _sb.ToString();
+        }
+
+        if (_waterOpacityLabel) {
+            _sb.Clear(); _sb.Append("%: ").Append((Controller.WaterOpacity * 100).ToString("F0"));
+            _waterOpacityLabel.text = _sb.ToString();
+        }
+
+        if (_sparkleIntensityLabel) {
+            _sb.Clear(); _sb.Append("x: ").Append(Controller.SparkleIntensity.ToString("F2"));
+            _sparkleIntensityLabel.text = _sb.ToString();
         }
 
         if (_boundsSizeLabel) {

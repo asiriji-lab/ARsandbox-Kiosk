@@ -1,6 +1,6 @@
-# Project Status Report: "The Ferrari Engine" Refactor
-**Date:** 2026-01-18
-**Status:** High-Performance Standard Achieved
+# Project Status Report: "The Ferrari Engine" & "Documentation Overhaul"
+**Last Updated:** 2026-01-26
+**Status:** Architecture Solidified & Documentation Standardized
 
 This document records the architectural upgrades and work history for the AR Sandbox project. It is intended to help future agents/developers understand the state of the codebase and the purpose of surrounding documentation.
 
@@ -54,7 +54,33 @@ We have moved the project from a prototype state to a ruggedized, professional c
 
 ---
 
-## 📂 Documentation Map (What's in the Assets folder?)
+## � Recent Work: Documentation & Standards Overhaul (2026-01-26)
+We consolidated fragmented notes and conflicting standards into a structured "Project Library."
+
+### 1. Unified Coding Standard
+**Issue:** Three separate documents provided conflicting naming conventions, leading to AI confusion (hallucination).
+**The Fix:** 
+- Created a single [Coding_Standard.md](../Standards/Coding_Standard.md) as the strict source of truth for C# and Shader code.
+- **Decision:** Standardized on `PascalCase` for Public/Inspector fields and `_camelCase` for Private fields.
+
+### 2. Technical Implementation Manual
+**Feature:** Separated "Rules" from "Research."
+- Created the [Implementation_Manual.md](../Technical/Implementation_Manual.md) to house deep-dive details on the MeshData API, URP settings, and Azure Kinect DLL management.
+
+### 3. Documentation Library Clean-up
+**Action:** 
+- Moved rogue files from the `Assets/` root into a structured `Assets/Docs/` hierarchy.
+- Updated the central [README.md](../README.md) to serve as a clear map of the project.
+- Created a **Refactoring Data Guide** to assist agents in generating error-free reports.
+
+### 4. Workflow Synchronization
+**Action:** 
+- Updated the custom `chunked_implementation` workflow to point to the new documentation structure.
+- Re-activated `.agent/progress.txt` for volatile task memory.
+
+---
+
+## �📂 Documentation Map (What's in the Assets folder?)
 If you are looking around, here is what the other markdown files contain:
 
 ### `unitycode.md`

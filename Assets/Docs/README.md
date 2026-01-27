@@ -7,12 +7,12 @@ This folder contains all project documentation, organized by category.
 ## 📁 Folder Structure
 
 ### [Standards/](./Standards/)
-Coding conventions and architectural guidelines for the project.
+Coding conventions and architectural guidelines.
 
 | File | Description |
 |------|-------------|
-| [Coding_Standard.md](./Standards/Coding_Standard.md) | Unity 6 project configuration, Azure Kinect DLL management, naming conventions, and performance standards |
-| [Unity_Architecture_Standards.md](./Standards/Unity_Architecture_Standards.md) | Script lifecycle, Input System patterns, UI framework selection, and programmatic UI construction |
+| [Coding_Standard.md](./Standards/Coding_Standard.md) | **Strict Standard**: Naming conventions, grammar, defensive patterns, and API documentation. |
+| [Unity_Architecture_Standards.md](./Standards/Unity_Architecture_Standards.md) | Script lifecycle, Input System patterns, and programmatic UI construction. |
 
 ---
 
@@ -21,8 +21,10 @@ In-depth technical references for specific systems.
 
 | File | Description |
 |------|-------------|
-| [Shader_Architecture.md](./Technical/Shader_Architecture.md) | Color correction science, Lerp-based tinting, desert color palettes, and PBR integration for sand shaders |
-| [Triplanar_Sand_Rendering.md](./Technical/Triplanar_Sand_Rendering.md) | Triplanar mapping implementation, UV-free texture projection, and performance optimization for dynamic meshes |
+| [Implementation_Manual.md](./Technical/Implementation_Manual.md) | **Technical Depth**: MeshData API, Job scheduling, DLL management, and URP config. |
+| [Shader_Architecture.md](./Technical/Shader_Architecture.md) | Color correction, Lerp-based tinting, and PBR integration for sand shaders. |
+| [Triplanar_Sand_Rendering.md](./Technical/Triplanar_Sand_Rendering.md) | Triplanar mapping implementation and performance optimization for dynamic meshes. |
+| [Reference/](./Technical/Reference/) | Raw research and property notes (UC Davis, Water, URP). |
 
 ---
 
@@ -31,8 +33,9 @@ Step-by-step setup and usage instructions.
 
 | File | Description |
 |------|-------------|
-| [Setup_Guide.md](./Guides/Setup_Guide.md) | Complete setup walkthrough: software installation, project setup, Kinect integration, and troubleshooting |
-| [Calibration_UX_Workflow.md](./Guides/Calibration_UX_Workflow.md) | Ideal staff workflow for physical alignment, depth range setting, and system verification |
+| [Setup_Guide.md](./Guides/Setup_Guide.md) | Complete setup walkthrough: software, project, and Kinect integration. |
+| [Calibration_UX_Workflow.md](./Guides/Calibration_UX_Workflow.md) | Staff workflow for physical alignment and system verification. |
+| [Deployment_Guide.md](./Guides/Deployment_Guide.md) | Build and deployment notes. |
 
 ---
 
@@ -41,8 +44,9 @@ Project status reports and refactoring notes.
 
 | File | Description |
 |------|-------------|
-| [Project_Status_Report.md](./History/Project_Status_Report.md) | "Ferrari Engine" refactor summary: MeshData API, Input System safety, URP settings, camera controls |
-| [Refactoring_Analysis.md](./History/Refactoring_Analysis.md) | Naming convention violations analysis and refactoring plan for `ARSandboxController.cs` |
+| [Project_Status_Report.md](./History/Project_Status_Report.md) | "Ferrari Engine" refactor summary (MeshData, Input System, URP). |
+| [Bug_Fix_Log.md](./History/Bug_Fix_Log.md) | Granular log of specific bug fixes and issue resolutions ("When, What, How"). |
+| [Refactoring_Analysis.md](./History/Refactoring_Analysis.md) | Naming convention analysis for `ARSandboxController.cs`. |
 
 ---
 
@@ -51,7 +55,7 @@ Project status reports and refactoring notes.
 | Need to... | Go to... |
 |------------|----------|
 | Set up the project from scratch | [Setup_Guide.md](./Guides/Setup_Guide.md) |
-| Calibrate the system (Staff) | [Calibration_UX_Workflow.md](./Guides/Calibration_UX_Workflow.md) |
-| Understand coding conventions | [Coding_Standard.md](./Standards/Coding_Standard.md) |
-| Fix shader color issues | [Shader_Architecture.md](./Technical/Shader_Architecture.md) |
-| Understand what's been done | [Project_Status_Report.md](./History/Project_Status_Report.md) |
+| Understand coding standards or implementation details | For strict coding standards and naming conventions, see [Coding_Standard.md](./Standards/Coding_Standard.md).<br>For deep-dive implementation details (MeshData, DLLs, URP), see the [Implementation_Manual.md](./Technical/Implementation_Manual.md). |
+| Fix shader color or rendering issues | [Shader_Architecture.md](./Technical/Shader_Architecture.md) |
+| Check research or raw properties | [Reference/](./Technical/Reference/) |
+| Understand recent engine changes | [Project_Status_Report.md](./History/Project_Status_Report.md) |
