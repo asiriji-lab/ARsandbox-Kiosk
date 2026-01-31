@@ -5,6 +5,7 @@ Shader "Custom/Topography"
         [Header(Height Mapping)]
         _HeightMin ("Height Min", Float) = 0.0
         _HeightMax ("Height Max", Float) = 5.0
+        _ColorHeightMax ("Color Reference Height", Float) = 5.0
         _ColorRamp ("Color Ramp", 2D) = "white" {}
 
         [Header(Contour Lines)]
@@ -12,7 +13,10 @@ Shader "Custom/Topography"
         _ContourThickness ("Contour Thickness", Float) = 0.02
         _ContourColor ("Contour Color", Color) = (0.3, 0.3, 0.3, 1)
         _DiscreteBands ("Use Discrete Bands", Float) = 0
-
+        
+        [Header(GPGPU Rendering)]
+        _Procedural ("Procedural Enabled", Float) = 0
+        
         [Header(Sand Textures)]
         _SandTex ("Sand Albedo", 2D) = "white" {}
         _SandNormal ("Sand Normal", 2D) = "bump" {}
@@ -63,6 +67,7 @@ Shader "Custom/Topography"
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma shader_feature_local _PROCEDURAL_ON
             
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
@@ -71,6 +76,7 @@ Shader "Custom/Topography"
             {
                 float4 positionOS   : POSITION;
                 float3 normalOS     : NORMAL;
+                float2 uv           : TEXCOORD0;
                 float2 uv2          : TEXCOORD1; // Channel for Height Data
             };
 
@@ -80,12 +86,14 @@ Shader "Custom/Topography"
                 float3 positionWS   : TEXCOORD0;
                 float3 normalWS     : TEXCOORD1;
                 float2 uv2          : TEXCOORD2;
+                float2 uv           : TEXCOORD3;
             };
 
             // SRP Batcher Compatibility (UnityPerMaterial)
             CBUFFER_START(UnityPerMaterial)
                 float _HeightMin;
                 float _HeightMax;
+                float _ColorHeightMax;
                 float _ContourInterval;
                 float _ContourThickness;
                 half4 _ContourColor;
@@ -100,6 +108,7 @@ Shader "Custom/Topography"
                 float _Glossiness;
                 float _FresnelPower;
                 float4 _SpecularColor;
+                float _Procedural;
                 
                 float4 _ColorRamp_ST;
                 float _Brightness;
@@ -130,16 +139,46 @@ Shader "Custom/Topography"
             TEXTURE2D(_SandOcclusion);
             SAMPLER(sampler_SandTex); // Shared sampler
 
-            Varyings vert(Attributes IN)
+            // --- ZERO-COPY GPGPU DATA ---
+            struct TerrainVertex
+            {
+                float3 pos;
+                float3 normal;
+                float2 uv;
+                float2 uv2;
+            };
+
+            #if defined(_PROCEDURAL_ON)
+                StructuredBuffer<TerrainVertex> _VertexBuffer;
+            #endif
+
+            Varyings vert(Attributes IN, uint vid : SV_VertexID)
             {
                 Varyings OUT;
-                VertexPositionInputs positionInputs = GetVertexPositionInputs(IN.positionOS.xyz);
-                VertexNormalInputs normalInputs = GetVertexNormalInputs(IN.normalOS);
                 
-                OUT.positionHCS = positionInputs.positionCS;
-                OUT.positionWS = positionInputs.positionWS;
-                OUT.normalWS = normalInputs.normalWS;
-                OUT.uv2 = IN.uv2; // Pass height data
+                #if defined(_PROCEDURAL_ON)
+                    // Fetch vertex data directly from GPU buffer (Zero-Copy Terrain)
+                    TerrainVertex v = _VertexBuffer[vid];
+                    VertexPositionInputs positionInputs = GetVertexPositionInputs(v.pos);
+                    VertexNormalInputs normalInputs = GetVertexNormalInputs(v.normal);
+                    OUT.uv = v.uv;
+                    OUT.uv2 = v.uv2;
+                    
+                    OUT.positionHCS = positionInputs.positionCS;
+                    OUT.positionWS = positionInputs.positionWS;
+                    OUT.normalWS = normalInputs.normalWS;
+                #else
+                    // Standard Mesh Rendering (Side Walls / Legacy)
+                    VertexPositionInputs positionInputs = GetVertexPositionInputs(IN.positionOS.xyz);
+                    VertexNormalInputs normalInputs = GetVertexNormalInputs(IN.normalOS);
+                    OUT.uv = IN.uv;
+                    OUT.uv2 = IN.uv2;
+                    
+                    OUT.positionHCS = positionInputs.positionCS;
+                    OUT.positionWS = positionInputs.positionWS;
+                    OUT.normalWS = normalInputs.normalWS;
+                #endif
+
                 return OUT;
             }
 
@@ -222,9 +261,10 @@ Shader "Custom/Topography"
                 }
 
                 // --- COLOR MAPPING MIX ---
-                // Map height to 0-1 with noise suppression at low scales
-                float range = max(0.01, _HeightMax - _HeightMin);
-                float height01 = saturate(((height - _HeightMin) / range) + _ColorShift);
+                // Map height to 0-1 using FIXED color reference height (not geometry scale)
+                // This ensures topological colors are ABSOLUTE, not relative to current HeightScale
+                float colorRange = max(0.01, _ColorHeightMax - _HeightMin);
+                float height01 = ((height - _HeightMin) / colorRange) + _ColorShift;
                 
                 // Fade out the gradient colors if the world is "Flat" (Hill Height near 0)
                 // This prevents tiny sensor noise from looking like huge mountains.
@@ -242,17 +282,39 @@ Shader "Custom/Topography"
                     float steppedHeight = stepIndex * _ContourInterval;
 
                     // Normalize this stepped height to get the UV for the color ramp
-                    sampleHeight = saturate(((steppedHeight - _HeightMin) / range) + _ColorShift);
+                    sampleHeight = ((steppedHeight - _HeightMin) / colorRange) + _ColorShift;
                     
                     // Apply the same flat-mode fade out logic 
                     sampleHeight *= scaleFade;
                 }
                 
-                half4 gradientColor = SAMPLE_TEXTURE2D(_ColorRamp, sampler_ColorRamp, float2(sampleHeight, 0.5));
+                // Extended color support: fallback colors for extreme ColorShift values
+                half4 gradientColor;
+                if (sampleHeight < 0.0) {
+                    // Below gradient: deep blue/purple for very low areas
+                    half4 lowColor = half4(0.1, 0.0, 0.3, 1.0); // Deep purple
+                    half4 edgeColor = SAMPLE_TEXTURE2D(_ColorRamp, sampler_ColorRamp, float2(0.0, 0.5));
+                    gradientColor = lerp(lowColor, edgeColor, saturate(sampleHeight + 1.0));
+                } else if (sampleHeight > 1.0) {
+                    // Above gradient: bright white/pink for very high areas
+                    half4 highColor = half4(1.0, 0.8, 1.0, 1.0); // Bright pink-white
+                    half4 edgeColor = SAMPLE_TEXTURE2D(_ColorRamp, sampler_ColorRamp, float2(1.0, 0.5));
+                    gradientColor = lerp(edgeColor, highColor, saturate(sampleHeight - 1.0));
+                } else {
+                    gradientColor = SAMPLE_TEXTURE2D(_ColorRamp, sampler_ColorRamp, float2(sampleHeight, 0.5));
+                }
                 
-                // SOFT TINT BLEND: Prevents "Muddy Green" artifacts
-                // Boost brightness by 2.0 to counteract Multiply darkening (standard "Modulate" behavior)
-                half4 tintedSand = sandAlbedo * gradientColor * 2.0;
+                // LUMINANCE BLEND: Preserves palette fidelity while keeping sand detail
+                // 1. Calculate luminance (brightness) of the sand texture
+                float lum = dot(sandAlbedo.rgb, float3(0.3, 0.59, 0.11));
+                
+                // 2. Apply luminance to the gradient color
+                // We multiply by (lum * 2.0) so that mid-gray sand results in 100% color brightness,
+                // darker sand grains create shadows, and lighter grains create highlights.
+                half3 coloredSand = gradientColor.rgb * saturate(lum * 2.0);
+                half4 tintedSand = half4(coloredSand, 1.0);
+
+                // 3. Blend between pure sand and colored sand using Tint Strength
                 half4 terrainColor = lerp(sandAlbedo, tintedSand, _TintStrength);
                 
                 // Preserve Gradient Alpha (usually 1)

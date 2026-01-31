@@ -1,0 +1,47 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 168397e7ba7e9264bb264cc2ad94f6c9, type: 3}
+  m_Name: DefaultSandboxSettings
+  m_EditorClassIdentifier: Assembly-CSharp::SandboxSettingsSO
+  MinDepth: 500
+  MaxDepth: 1500
+  HeightScale: 5
+  MeshSize: 10
+  MeshResolution: 200
+  FlatMode: 0
+  CalibrationPoints:
+  - {x: 0, y: 0}
+  - {x: 0, y: 1}
+  - {x: 1, y: 1}
+  - {x: 1, y: 0}
+  TintStrength: 0.5
+  SandScale: 10
+  ColorScheme: 0
+  UseDiscreteBands: 0
+  ShowWalls: 0
+  WaterLevel: 0.5
+  WaterOpacity: 0.6
+  WaterColor: {r: 0, g: 0.2, b: 1, a: 1}
+  ColorShift: 0
+  ContourInterval: 0.5
+  ContourThickness: 1
+  SparkleIntensity: 1
+  CausticIntensity: 0.5
+  CausticScale: 2
+  CausticSpeed: 0.5
+  NoiseScale: 0.5
+  MoveSpeed: 0.5
+  SmoothingFactor: 0.5
+  MinCutoff: 1
+  Beta: 0.007
+  HandThreshold: 80
+  SpatialBlur: 2

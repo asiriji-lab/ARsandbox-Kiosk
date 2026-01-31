@@ -25,6 +25,9 @@ public class SimulatedDepthProvider : MonoBehaviour, IDepthProvider
     public float MinDepthMM = 500f;
     public float MaxDepthMM = 1500f;
 
+    [Header("Debug")]
+    public bool SimulateHang = false;
+
     private NativeArray<ushort> _depthBuffer;
     private ushort[] _depthDataManaged; 
     private float _noiseOffsetX;
@@ -51,7 +54,7 @@ public class SimulatedDepthProvider : MonoBehaviour, IDepthProvider
 
     public ushort[] GetDepthData()
     {
-        if (!_isRunning) return null;
+        if (!_isRunning || SimulateHang) return null;
         GenerateFrame();
         _depthBuffer.CopyTo(_depthDataManaged);
         return _depthDataManaged;

@@ -3,16 +3,32 @@
   "WorkspaceRootPath": "D:\\motionsix\\Sandbox(new)\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|D:\\motionsix\\Sandbox(new)\\assets\\arsandboxcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|solutionrelative:assets\\arsandboxcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{3E14C7B1-629B-4D10-D18B-50449B837066}|ARSandbox.Core.csproj|d:\\motionsix\\sandbox(new)\\assets\\scripts\\core\\calibrationdebugger.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{3E14C7B1-629B-4D10-D18B-50449B837066}|ARSandbox.Core.csproj|solutionrelative:assets\\scripts\\core\\calibrationdebugger.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|d:\\motionsix\\sandbox(new)\\assets\\sandboxui.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|solutionrelative:assets\\sandboxui.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|d:\\motionsix\\sandbox(new)\\assets\\resources\\compute\\terrainsimulation.compute||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|solutionrelative:assets\\resources\\compute\\terrainsimulation.compute||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\motionsix\\Sandbox(new)\\Assets\\Settings\\Tests\\Tests\\Tests.asmdef||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:Assets\\Settings\\Tests\\Tests\\Tests.asmdef||{3B902123-F8A7-4915-9F01-361F908088D0}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|D:\\motionsix\\Sandbox(new)\\assets\\topography.shader||{3B902123-F8A7-4915-9F01-361F908088D0}",
       "RelativeMoniker": "D:0:0:{01AC331E-615D-D730-2324-AFB7EDB12559}|Assembly-CSharp.csproj|solutionrelative:assets\\topography.shader||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{14D146F8-EF21-2C56-0A8E-30DFA621FC7E}|ARSandbox.Tests.csproj|D:\\motionsix\\Sandbox(new)\\Assets\\Scripts\\Tests\\CalibrationMathTests.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{14D146F8-EF21-2C56-0A8E-30DFA621FC7E}|ARSandbox.Tests.csproj|solutionrelative:Assets\\Scripts\\Tests\\CalibrationMathTests.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\motionsix\\Sandbox(new)\\Assets\\SandboxUI.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:Assets\\SandboxUI.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\motionsix\\Sandbox(new)\\Assets\\ARSandboxController.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:Assets\\ARSandboxController.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     }
   ],
   "DocumentGroupContainers": [
@@ -22,11 +38,59 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 1,
+          "SelectedChildIndex": 0,
           "Children": [
             {
               "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "CalibrationDebugger.cs",
+              "DocumentMoniker": "D:\\motionsix\\Sandbox(new)\\Assets\\Scripts\\Core\\CalibrationDebugger.cs",
+              "RelativeDocumentMoniker": "Assets\\Scripts\\Core\\CalibrationDebugger.cs",
+              "ToolTip": "D:\\motionsix\\Sandbox(new)\\Assets\\Scripts\\Core\\CalibrationDebugger.cs",
+              "RelativeToolTip": "Assets\\Scripts\\Core\\CalibrationDebugger.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-01-30T22:59:19.924Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
               "DocumentIndex": 1,
+              "Title": "TerrainSimulation.compute",
+              "DocumentMoniker": "D:\\motionsix\\Sandbox(new)\\Assets\\Resources\\Compute\\TerrainSimulation.compute",
+              "RelativeDocumentMoniker": "Assets\\Resources\\Compute\\TerrainSimulation.compute",
+              "ToolTip": "D:\\motionsix\\Sandbox(new)\\Assets\\Resources\\Compute\\TerrainSimulation.compute",
+              "RelativeToolTip": "Assets\\Resources\\Compute\\TerrainSimulation.compute",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002777|",
+              "WhenOpened": "2026-01-30T22:33:52.752Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "Tests.asmdef",
+              "DocumentMoniker": "D:\\motionsix\\Sandbox(new)\\Assets\\Settings\\Tests\\Tests\\Tests.asmdef",
+              "RelativeDocumentMoniker": "Assets\\Settings\\Tests\\Tests\\Tests.asmdef",
+              "ToolTip": "D:\\motionsix\\Sandbox(new)\\Assets\\Settings\\Tests\\Tests\\Tests.asmdef",
+              "RelativeToolTip": "Assets\\Settings\\Tests\\Tests\\Tests.asmdef",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001874|",
+              "WhenOpened": "2026-01-30T16:41:29.426Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "CalibrationMathTests.cs",
+              "DocumentMoniker": "D:\\motionsix\\Sandbox(new)\\Assets\\Scripts\\Tests\\CalibrationMathTests.cs",
+              "RelativeDocumentMoniker": "Assets\\Scripts\\Tests\\CalibrationMathTests.cs",
+              "ToolTip": "D:\\motionsix\\Sandbox(new)\\Assets\\Scripts\\Tests\\CalibrationMathTests.cs",
+              "RelativeToolTip": "Assets\\Scripts\\Tests\\CalibrationMathTests.cs",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-01-30T16:36:58.621Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
               "Title": "SandboxUI.cs",
               "DocumentMoniker": "D:\\motionsix\\Sandbox(new)\\Assets\\SandboxUI.cs",
               "RelativeDocumentMoniker": "Assets\\SandboxUI.cs",
@@ -34,25 +98,23 @@
               "RelativeToolTip": "Assets\\SandboxUI.cs",
               "ViewState": "AgIAADUCAAAAAAAAAIAwwD4CAAASAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-01-17T11:28:19.36Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-01-17T11:28:19.36Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 6,
               "Title": "ARSandboxController.cs",
               "DocumentMoniker": "D:\\motionsix\\Sandbox(new)\\Assets\\ARSandboxController.cs",
               "RelativeDocumentMoniker": "Assets\\ARSandboxController.cs",
               "ToolTip": "D:\\motionsix\\Sandbox(new)\\Assets\\ARSandboxController.cs",
               "RelativeToolTip": "Assets\\ARSandboxController.cs",
-              "ViewState": "AgIAAHgAAAAAAAAAAIAwwIEAAABgAAAAAAAAAA==",
+              "ViewState": "AgIAAFcBAAAAAAAAAIAwwGABAAAoAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-01-16T08:06:27.277Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-01-16T08:06:27.277Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 3,
               "Title": "Topography.shader",
               "DocumentMoniker": "D:\\motionsix\\Sandbox(new)\\Assets\\Topography.shader",
               "RelativeDocumentMoniker": "Assets\\Topography.shader",

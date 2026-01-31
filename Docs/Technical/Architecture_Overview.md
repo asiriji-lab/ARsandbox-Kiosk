@@ -19,7 +19,7 @@ graph LR
     classDef state fill:#f9f,stroke:#333,stroke-width:2px;
 
     subgraph Hardware_Context ["Hardware & Simulation"]
-        A["Kinect V2 Sensor"]:::hardware
+        A["Azure Kinect DK"]:::hardware
         B["Simulated Provider"]:::hardware
     end
 

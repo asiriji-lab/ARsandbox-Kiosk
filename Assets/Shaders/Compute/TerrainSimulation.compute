@@ -1,0 +1,254 @@
+#pragma kernel FilterDepth
+#pragma kernel GenerateMesh
+
+// --- STRUCTURES ---
+
+struct TerrainVertex
+{
+    float3 pos;
+    float3 normal;
+    float2 uv;
+    float2 uv2;
+};
+
+// ... (Buffer definitions need to match stride: 3+3+2+2 = 10 floats = 40 bytes)
+// Structure is now bigger.
+
+// --- BUFFERS ---
+
+// Input: Raw Depth Data (mm) from sensor
+StructuredBuffer<uint> _RawDepthInput;
+
+// State: 1-Euro Filter History
+// [0] = FilteredValue (float)
+// [1] = PreviousRawValue (float)
+// Stride = 2 floats per pixel
+RWStructuredBuffer<float> _FilterState; 
+
+// Output: Filtered Depth (mm)
+RWStructuredBuffer<uint> _FilteredDepthOutput; // Using uint for atomic compatibility if needed, but standard RW is fine.
+
+// Output: Generated Mesh Vertices
+RWStructuredBuffer<TerrainVertex> _VertexBuffer;
+
+// --- PARAMETERS ---
+
+// Filter Params
+float _DeltaTime;
+float _MinCutoff;
+float _Beta;
+float _HandThreshold;
+float _MaxDepth;
+int _Width;
+int _Height;
+
+// Mesh Params
+int _MeshResolution;
+float _MeshSize; // Width/Length in Unity units
+float _MinDepthMM;
+float _MaxDepthMM;
+float _HeightScale;
+bool _FlatMode;
+
+// Calibration Params
+float2 _pBL;
+float2 _pTL;
+float2 _pTR;
+float2 _pBR;
+
+// ROI Boundary (Passed as Vector4 array, we use xy)
+float4 _BoundaryPoints[4]; 
+
+// --- UTILS ---
+
+float CrossProduct(float2 a, float2 b)
+{
+    return a.x * b.y - a.y * b.x;
+}
+
+// Check if p is inside convex quadrilateral defined by corners[4]
+// Assumes winding order (e.g. clockwise or ccw) is consistent
+bool IsPointInQuad(float2 p)
+{
+    // Check 4 edges. If point is to the right (or left) of all edges, it's inside.
+    // Edge 0->1
+    float2 e0 = _BoundaryPoints[1].xy - _BoundaryPoints[0].xy;
+    float2 p0 = p - _BoundaryPoints[0].xy;
+    if (CrossProduct(e0, p0) < 0) return false;
+
+    // Edge 1->2
+    float2 e1 = _BoundaryPoints[2].xy - _BoundaryPoints[1].xy;
+    float2 p1 = p - _BoundaryPoints[1].xy;
+    if (CrossProduct(e1, p1) < 0) return false;
+
+    // Edge 2->3
+    float2 e2 = _BoundaryPoints[3].xy - _BoundaryPoints[2].xy;
+    float2 p2 = p - _BoundaryPoints[2].xy;
+    if (CrossProduct(e2, p2) < 0) return false;
+
+    // Edge 3->0
+    float2 e3 = _BoundaryPoints[0].xy - _BoundaryPoints[3].xy;
+    float2 p3 = p - _BoundaryPoints[3].xy;
+    if (CrossProduct(e3, p3) < 0) return false;
+
+    return true;
+}
+
+float CubicWeight(float x)
+{
+    float absX = abs(x);
+    if (absX <= 1.0f) return 1.5f * absX * absX * absX - 2.5f * absX * absX + 1.0f;
+    if (absX <= 2.0f) return -0.5f * absX * absX * absX + 2.5f * absX * absX - 4.0f * absX + 2.0f;
+    return 0.0f;
+}
+
+// --- KERNEL 0: FILTER DEPTH (1-Euro) ---
+
+[numthreads(64, 1, 1)]
+void FilterDepth(uint3 id : SV_DispatchThreadID)
+{
+    int i = id.x;
+    if (i >= _Width * _Height) return;
+
+    float raw = (float)_RawDepthInput[i];
+    
+    // State Indexing: Each pixel has 2 floats (Filtered, PrevRaw)
+    int stateIdx = i * 2;
+    float prevFiltered = _FilterState[stateIdx];
+    float prevRaw = _FilterState[stateIdx + 1];
+
+    // Invalid Data Handling (Hole Filling / Shadow)
+    if (raw <= 0) {
+        // Keep last known good value
+        _FilteredDepthOutput[i] = (uint)prevFiltered;
+        return;
+    }
+
+    if (prevRaw <= 0) prevRaw = raw; // First frame valid
+
+    // 1-Euro Filter Implementation
+    float dx = (raw - prevRaw) / _DeltaTime;
+    float cutoff = _MinCutoff + _Beta * abs(dx);
+
+    // Hand Rejection (Simplified for GPU)
+    // If velocity is too high and we are "above" the sand (low depth value = high physical height, but here depth is mm distance)
+    // Actually, low mm = high physical object (hand).
+    // if (abs(dx) * _DeltaTime > _HandThreshold) cutoff = _MinCutoff * 0.1f; 
+
+    float tau = 1.0f / (2.0f * 3.14159265f * cutoff);
+    float alpha = 1.0f - exp(-_DeltaTime / tau);
+    
+    float filtered = lerp(prevFiltered, raw, alpha);
+    
+    // Clamp to valid ushort range to prevent wrapping
+    filtered = clamp(filtered, 1.0f, 65000.0f);
+
+    // Write Back
+    _FilterState[stateIdx] = filtered;
+    _FilterState[stateIdx + 1] = raw;
+    _FilteredDepthOutput[i] = (uint)filtered;
+}
+
+// --- KERNEL 1: GENERATE MESH ---
+
+[numthreads(64, 1, 1)]
+void GenerateMesh(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    uint totalVerts = _MeshResolution * _MeshResolution;
+    if (i >= totalVerts) return;
+
+    uint z = i / (uint)_MeshResolution;
+    uint x = i % (uint)_MeshResolution;
+
+    // UVs (0-1)
+    float u = (float)x / (_MeshResolution - 1);
+    float v = (float)z / (_MeshResolution - 1);
+
+    // World Position (XZ)
+    float xPos = (u - 0.5f) * _MeshSize;
+    float zPos = (v - 0.5f) * _MeshSize;
+
+    // Height Calculation - ALWAYS calculate for UV2 coloring
+    float calculatedHeight = 0;
+    
+    // 1. ROI MASK CHECK
+    // The vertex UV is (u,v). We check if this UV is inside the labeled 4 points.
+    // However, the boundary points are in UV space (0-1).
+    bool isInside = IsPointInQuad(float2(u, v));
+    
+    if (!isInside)
+    {
+        // OUTSIDE: Force Flat Floor
+        calculatedHeight = 0; 
+        // We can optimize by skipping the texture sampling below?
+        // Let's just set depthVal = 0 effectively.
+    }
+    else
+    {
+        // INSIDE: Proceed with Depth Sampling
+        
+        // Calibration Projection
+        float2 leftEdge = lerp(_pBL, _pTL, v);
+        float2 rightEdge = lerp(_pBR, _pTR, v);
+        float2 sampleUV = lerp(leftEdge, rightEdge, u);
+    
+        float texX = sampleUV.x * (_Width - 1);
+        float texY = sampleUV.y * (_Height - 1);
+    
+        // Bicubic Interpolation
+        int ix = (int)floor(texX);
+        int iy = (int)floor(texY);
+        float fx = texX - ix;
+        float fy = texY - iy;
+    
+        float totalWeight = 0;
+        float sampleSum = 0;
+    
+        for (int j = -1; j <= 2; j++)
+        {
+            int py = clamp(iy + j, 0, _Height - 1);
+            float wy = CubicWeight(j - fy);
+    
+            for (int m = -1; m <= 2; m++)
+            {
+                int px = clamp(ix + m, 0, _Width - 1);
+                float wx = CubicWeight(m - fx);
+                
+                // Read from Filtered Buffer
+                float d = (float)_FilteredDepthOutput[py * _Width + px];
+                
+                if (d > 0)
+                {
+                    float weight = wx * wy;
+                    sampleSum += d * weight;
+                    totalWeight += weight;
+                }
+            }
+        }
+    
+        float depthVal = totalWeight > 0.001f ? (sampleSum / totalWeight) : 0;
+    
+        // Convert MM to Unity Height
+        if (depthVal > 0)
+        {
+             float range = abs(_MaxDepthMM - _MinDepthMM);
+             if (range > 0.001f) {
+                 float normalized = (_MaxDepthMM - depthVal) / range;
+                 calculatedHeight = saturate(normalized) * _HeightScale;
+             }
+        }
+    }
+
+    // FlatMode: Use calculated height for coloring, but flatten geometry
+    float vertexY = _FlatMode ? 0.0f : calculatedHeight;
+
+    // Output Vertex
+    TerrainVertex vert;
+    vert.pos = float3(xPos, vertexY, zPos);
+    vert.normal = float3(0, 1, 0); // Up vector
+    vert.uv = float2(u, v);
+    vert.uv2 = float2(calculatedHeight, 0); // ALWAYS store calculated height for shader coloring
+
+    _VertexBuffer[i] = vert;
+}

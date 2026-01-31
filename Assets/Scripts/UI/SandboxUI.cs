@@ -5,16 +5,18 @@ using System.Text;
 using UnityEngine.InputSystem;
 using UnityEngine.Serialization;
 
-/// <summary>
-/// Ruggedized Admin UI for Museum AR Sandbox.
 /// Adheres to "Start-Phase" initialization and Programmatic UI standards.
 /// Updated: Supports 4-Point Calibration and Auto-Floor.
 /// </summary>
+namespace ARSandbox.UI
+{
 public class SandboxUI : MonoBehaviour
 {
-    [Header("Target Controller")]
-    [FormerlySerializedAs("controller")]
-    public ARSandboxController Controller;
+    [Header("MVVM")]
+    public SandboxViewModel ViewModel;
+    
+    [Header("Sub-Systems")]
+    public ROIEditorView ROIEditor;
 
     [Header("UI Resources")]
     [FormerlySerializedAs("knobSprite")]
@@ -95,6 +97,7 @@ public class SandboxUI : MonoBehaviour
     // Camera Views
     public enum CamView { Top, Perspective, Side }
     private CamView _currentView = CamView.Top;
+    private float _cameraZoomOffset = 0f; // Persists zoom across view changes
 
     void CycleCameraView() => CycleCameraView(1); // Default forward
 
@@ -112,46 +115,64 @@ public class SandboxUI : MonoBehaviour
         Camera cam = Camera.main;
         if (cam == null) return;
 
-        float size = Controller.Width; // Assume square
+        // MVVM Access
+        float size = 10f;
+        if (ViewModel != null && ViewModel.Settings != null) size = ViewModel.Settings.MeshSize;
+
         // Ensure size is at least 10 to avoid clipping
         if (size < 10) size = 10;
+
+        // Apply zoom offset (positive = zoomed in = closer)
+        float effectiveSize = size - _cameraZoomOffset;
+        effectiveSize = Mathf.Max(effectiveSize, 2f); // Prevent getting too close
 
         switch (_currentView)
         {
             case CamView.Top:
                 // Standard: Look Down
-                cam.transform.position = new Vector3(0, size, 0);
+                cam.transform.position = new Vector3(0, effectiveSize, 0);
                 cam.transform.rotation = Quaternion.Euler(90, 0, 0);
                 break;
             case CamView.Perspective:
                 // 45 Degree
-                cam.transform.position = new Vector3(0, size * 0.8f, -size * 0.8f);
+                cam.transform.position = new Vector3(0, effectiveSize * 0.8f, -effectiveSize * 0.8f);
                 cam.transform.LookAt(Vector3.zero);
                 break;
             case CamView.Side:
                 // Side View (Amplitude Check)
-                cam.transform.position = new Vector3(0, size * 0.2f, -size);
+                cam.transform.position = new Vector3(0, effectiveSize * 0.2f, -effectiveSize);
                 cam.transform.LookAt(Vector3.zero);
                 break;
         }
-        Debug.Log($"Switched View to: {_currentView}");
+        Debug.Log($"Switched View to: {_currentView} (Zoom Offset: {_cameraZoomOffset:F1})");
     }
 
     void Start()
     {
         Debug.Log("SandboxUI: Start() Called");
+        
+        // Auto-find ROI Editor if not assigned (Include Inactive)
+        if (ROIEditor == null) ROIEditor = FindFirstObjectByType<ROIEditorView>(FindObjectsInactive.Include);
+        if (ROIEditor != null && ViewModel != null && ViewModel.Settings != null)
+             ROIEditor.Initialize(ViewModel.Settings);
+        
         // "External" Initialization
-        if (Controller == null)
-            Controller = FindFirstObjectByType<ARSandboxController>();
+        if (ViewModel == null)
+            ViewModel = FindFirstObjectByType<SandboxViewModel>();
 
-        if (Controller == null)
+        if (ViewModel == null)
         {
-            Debug.LogError("SandboxUI: No ARSandboxController found!");
+            Debug.LogError("SandboxUI: No SandboxViewModel found!");
+            return;
+        }
+        else if (ViewModel.Settings == null)
+        {
+            Debug.LogError("SandboxUI: ViewModel found but Settings are null! Initialization race condition?");
             return;
         }
         else 
         {
-             Debug.Log("SandboxUI: Controller found.");
+             Debug.Log("SandboxUI: ViewModel found.");
         }
 
         try {
@@ -301,29 +322,23 @@ public class SandboxUI : MonoBehaviour
 
     void AdjustCameraZoom(float delta)
     {
-        Camera cam = Camera.main;
-        if (cam == null) return;
-
-        if (_currentView == CamView.Top)
-        {
-            // Top View: Move Up/Down (World Y)
-            // Up Arrow (+delta) = Move Up; Down Arrow (-delta) = Move Down
-            cam.transform.Translate(0, delta, 0, Space.World);
-        }
-        else
-        {
-            // Perspective: Move Forward/Back (Local Z)
-            // Up Arrow (+delta) = Move Forward (Zoom In); Down Arrow (-delta) = Move Back
-            cam.transform.Translate(0, 0, delta, Space.Self);
-        }
+        // Update persistent zoom offset
+        // Positive delta (Up Arrow) = zoom in = increase offset (decreases effectiveSize)
+        _cameraZoomOffset += delta;
+        
+        // Clamp to reasonable range
+        _cameraZoomOffset = Mathf.Clamp(_cameraZoomOffset, -20f, 15f);
+        
+        // Apply the new zoom to current view
+        UpdateCameraTransform();
     }
 
     void UpdateCalibrationLogic()
     {
         // Ensure Texture is up to date
-        if (_calibrationOverlay.texture == null)
+        if (_calibrationOverlay.texture == null && ViewModel.Controller != null)
         {
-            _calibrationOverlay.texture = Controller.GetRawDepthTexture();
+            _calibrationOverlay.texture = ViewModel.Controller.GetRawDepthTexture();
         }
 
         // Handle Dragging
@@ -358,7 +373,7 @@ public class SandboxUI : MonoBehaviour
             float normY = Mathf.Clamp01(mousePos.y / Screen.height);
 
             // Update Controller
-            Controller.CalibrationPoints[_draggingHandleIndex] = new Vector2(normX, normY);
+            ViewModel.Settings.CalibrationPoints[_draggingHandleIndex] = new Vector2(normX, normY);
             
             // Update Visual
             _handles[_draggingHandleIndex].position = mousePos;
@@ -369,7 +384,7 @@ public class SandboxUI : MonoBehaviour
             if (_draggingHandleIndex != -1)
             {
                 _draggingHandleIndex = -1;
-                Controller.SaveSettings(); // Save on release
+                ViewModel.SaveSettings(); // Save on release
             }
         }
     }
@@ -385,7 +400,7 @@ public class SandboxUI : MonoBehaviour
             {
                 for(int i=0; i<4; i++)
                 {
-                    Vector2 norm = Controller.CalibrationPoints[i];
+                    Vector2 norm = ViewModel.Settings.CalibrationPoints[i];
                     _handles[i].position = new Vector2(norm.x * Screen.width, norm.y * Screen.height);
                 }
             }
@@ -637,110 +652,44 @@ public class SandboxUI : MonoBehaviour
 
     void ApplyPreset(string name)
     {
-        if (name == "Volcano")
-        {
-            Controller.HeightScale = 8.0f;
-            Controller.TintStrength = 0.8f;
-            Controller.UseDiscreteBands = true;
-            Controller.ApplyGradientPreset(ARSandboxController.GradientPreset.Desert);
-        }
-        else if (name == "Ocean")
-        {
-            Controller.HeightScale = 3.0f;
-            Controller.TintStrength = 0.4f;
-            Controller.UseDiscreteBands = false;
-            Controller.ApplyGradientPreset(ARSandboxController.GradientPreset.UCDavis);
-        }
-        else // Oasis / Default
-        {
-            Controller.HeightScale = 5.0f;
-            Controller.TintStrength = 0.5f;
-            Controller.UseDiscreteBands = false;
-            Controller.ApplyGradientPreset(ARSandboxController.GradientPreset.UCDavis);
-        }
+        ViewModel.ApplyPreset(name);
         
         // Refresh Sliders
-        if (_heightSlider) _heightSlider.value = Controller.HeightScale;
-        if (_tintStrengthSlider) _tintStrengthSlider.value = Controller.TintStrength;
-        Controller.UpdateMaterialProperties();
-        Controller.SaveSettings();
+        if (_heightSlider) _heightSlider.value = ViewModel.Settings.HeightScale;
+        if (_tintStrengthSlider) _tintStrengthSlider.value = ViewModel.Settings.TintStrength;
+        // Controller.UpdateMaterialProperties(); // Handled by VM
+        // Controller.SaveSettings(); // Handled by VM
     }
 
     void BuildViewTab(DefaultControls.Resources res)
     {
         CreateHeader(_viewTab.transform, "SANDBOX VISUALS", Color.cyan);
         
-        _heightSlider = CreateSliderRow(_viewTab.transform, res, "Hill Height", 0.0f, 10f, Controller.HeightScale, out _heightLabel, (v) => {
-            Controller.HeightScale = v;
-            Controller.SaveSettings();
-        });
+        _heightSlider = CreateSliderRow(_viewTab.transform, res, "Hill Height", 0.0f, 10f, ViewModel.Settings.HeightScale, out _heightLabel, (v) => ViewModel.SetHeightScale(v));
 
-        _tintStrengthSlider = CreateSliderRow(_viewTab.transform, res, "Color Intensity", 0.0f, 1.0f, Controller.TintStrength, out _tintStrengthLabel, (v) => {
-            Controller.TintStrength = v;
-            Controller.SaveSettings();
-        });
+        _tintStrengthSlider = CreateSliderRow(_viewTab.transform, res, "Color Intensity", 0.0f, 1.0f, ViewModel.Settings.TintStrength, out _tintStrengthLabel, (v) => ViewModel.SetTintStrength(v));
 
-        _sandScaleSlider = CreateSliderRow(_viewTab.transform, res, "Texture Detail", 1f, 50f, Controller.SandScale, out _sandScaleLabel, (v) => {
-            Controller.SandScale = v;
-            Controller.UpdateMaterialProperties();
-            Controller.SaveSettings();
-        });
+        _sandScaleSlider = CreateSliderRow(_viewTab.transform, res, "Texture Detail", 1f, 50f, ViewModel.Settings.SandScale, out _sandScaleLabel, (v) => ViewModel.SetSandScale(v));
 
-        _waterLevelSlider = CreateSliderRow(_viewTab.transform, res, "Water Level", 0f, 10f, Controller.WaterLevel, out _waterLevelLabel, (v) => {
-            Controller.WaterLevel = v;
-            Controller.UpdateMaterialProperties();
-            Controller.SaveSettings();
-        });
+        _waterLevelSlider = CreateSliderRow(_viewTab.transform, res, "Water Level", 0f, 10f, ViewModel.Settings.WaterLevel, out _waterLevelLabel, (v) => ViewModel.SetWaterLevel(v));
 
-        _colorShiftSlider = CreateSliderRow(_viewTab.transform, res, "Color Spread", -0.5f, 0.5f, Controller.ColorShift, out _colorShiftLabel, (v) => {
-            Controller.ColorShift = v;
-            Controller.UpdateMaterialProperties();
-            Controller.SaveSettings();
-        });
+        _colorShiftSlider = CreateSliderRow(_viewTab.transform, res, "Color Spread", -1.0f, 1.0f, ViewModel.Settings.ColorShift, out _colorShiftLabel, (v) => ViewModel.SetColorShift(v));
 
         CreateHeader(_viewTab.transform, "WATER & CAUSTICS", Color.cyan);
 
-        _waterOpacitySlider = CreateSliderRow(_viewTab.transform, res, "Water Opacity", 0f, 1f, Controller.WaterOpacity, out _waterOpacityLabel, (v) => {
-            Controller.WaterOpacity = v;
-            Controller.UpdateMaterialProperties();
-            Controller.SaveSettings();
-        });
+        _waterOpacitySlider = CreateSliderRow(_viewTab.transform, res, "Water Opacity", 0f, 1f, ViewModel.Settings.WaterOpacity, out _waterOpacityLabel, (v) => ViewModel.SetWaterOpacity(v));
 
-        _causticIntensitySlider = CreateSliderRow(_viewTab.transform, res, "Caustic Brightness", 0f, 2f, Controller.CausticIntensity, out _causticIntensityLabel, (v) => {
-            Controller.CausticIntensity = v;
-            Controller.UpdateMaterialProperties();
-            Controller.SaveSettings();
-        });
+        _causticIntensitySlider = CreateSliderRow(_viewTab.transform, res, "Caustic Brightness", 0f, 2f, ViewModel.Settings.CausticIntensity, out _causticIntensityLabel, (v) => ViewModel.SetCausticIntensity(v));
 
-        _causticScaleSlider = CreateSliderRow(_viewTab.transform, res, "Caustic Pattern Size", 0f, 0.15f, Controller.CausticScale, out _causticScaleLabel, (v) => {
-            Controller.CausticScale = v;
-            Controller.UpdateMaterialProperties();
-            Controller.SaveSettings();
-        });
+        _causticScaleSlider = CreateSliderRow(_viewTab.transform, res, "Caustic Pattern Size", 0f, 0.15f, ViewModel.Settings.CausticScale, out _causticScaleLabel, (v) => ViewModel.SetCausticScale(v));
 
-        _causticSpeedSlider = CreateSliderRow(_viewTab.transform, res, "Caustic Shimmer", 0f, 2f, Controller.CausticSpeed, out _causticSpeedLabel, (v) => {
-            Controller.CausticSpeed = v;
-            Controller.UpdateMaterialProperties();
-            Controller.SaveSettings();
-        });
+        _causticSpeedSlider = CreateSliderRow(_viewTab.transform, res, "Caustic Shimmer", 0f, 2f, ViewModel.Settings.CausticSpeed, out _causticSpeedLabel, (v) => ViewModel.SetCausticSpeed(v));
 
-        _sparkleIntensitySlider = CreateSliderRow(_viewTab.transform, res, "Sand Sparkle", 0f, 5f, Controller.SparkleIntensity, out _sparkleIntensityLabel, (v) => {
-            Controller.SparkleIntensity = v;
-            Controller.UpdateMaterialProperties();
-            Controller.SaveSettings();
-        });
+        _sparkleIntensitySlider = CreateSliderRow(_viewTab.transform, res, "Sand Sparkle", 0f, 5f, ViewModel.Settings.SparkleIntensity, out _sparkleIntensityLabel, (v) => ViewModel.SetSparkleIntensity(v));
 
-        _contourIntervalSlider = CreateSliderRow(_viewTab.transform, res, "Contour Gap", 0.1f, 2.0f, Controller.ContourInterval, out _contourIntervalLabel, (v) => {
-            Controller.ContourInterval = v;
-            Controller.UpdateMaterialProperties();
-            Controller.SaveSettings();
-        });
+        _contourIntervalSlider = CreateSliderRow(_viewTab.transform, res, "Contour Gap", 0.1f, 2.0f, ViewModel.Settings.ContourInterval, out _contourIntervalLabel, (v) => ViewModel.SetContourInterval(v));
 
-        _contourThicknessSlider = CreateSliderRow(_viewTab.transform, res, "Line Thickness", 0.1f, 5.0f, Controller.ContourThickness, out _contourThicknessLabel, (v) => {
-            Controller.ContourThickness = v;
-            Controller.UpdateMaterialProperties();
-            Controller.SaveSettings();
-        });
+        _contourThicknessSlider = CreateSliderRow(_viewTab.transform, res, "Line Thickness", 0.1f, 5.0f, ViewModel.Settings.ContourThickness, out _contourThicknessLabel, (v) => ViewModel.SetContourThickness(v));
 
         CreateHeader(_viewTab.transform, "THEME PRESETS", Color.yellow);
         GameObject row = new GameObject("PresetRow");
@@ -755,96 +704,79 @@ public class SandboxUI : MonoBehaviour
         CreateHeader(_viewTab.transform, "STYLE", Color.white);
         
         CreateButton(_viewTab.transform, res, "Cycle Color Scheme", () => {
-            int next = (int)Controller.CurrentGradientPreset + 1;
-            if (next >= System.Enum.GetValues(typeof(ARSandboxController.GradientPreset)).Length) next = 0;
-            Controller.ApplyGradientPreset((ARSandboxController.GradientPreset)next);
-            Controller.SaveSettings();
+            ViewModel.CycleColorScheme();
             UpdateLabels();
         });
 
-        CreateToggle(_viewTab.transform, res, "Discrete Bands (Topographic)", Controller.UseDiscreteBands, (v) => {
-            Controller.UseDiscreteBands = v;
-            Controller.UpdateMaterialProperties();
-            Controller.SaveSettings();
-        });
+        CreateToggle(_viewTab.transform, res, "Discrete Bands (Topographic)", ViewModel.Settings.UseDiscreteBands, (v) => ViewModel.SetDiscreteBands(v));
     }
 
     void BuildSetupTab(DefaultControls.Resources res)
     {
         CreateHeader(_setupTab.transform, "SENSOR & STABILITY", Color.green);
 
-        _staticStabilitySlider = CreateSliderRow(_setupTab.transform, res, "Anti-Shake", 0.1f, 5.0f, Controller.MinCutoff, out _staticStabilityLabel, (v) => {
-            Controller.MinCutoff = v;
-            Controller.SaveSettings();
-        });
+        _staticStabilitySlider = CreateSliderRow(_setupTab.transform, res, "Anti-Shake", 0.1f, 5.0f, ViewModel.Settings.MinCutoff, out _staticStabilityLabel, (v) => ViewModel.SetMinCutoff(v));
 
-        _motionResponseSlider = CreateSliderRow(_setupTab.transform, res, "Follow Speed", 0.001f, 0.2f, Controller.Beta, out _motionResponseLabel, (v) => {
-            Controller.Beta = v;
-            Controller.SaveSettings();
-        });
+        _motionResponseSlider = CreateSliderRow(_setupTab.transform, res, "Follow Speed", 0.001f, 0.2f, ViewModel.Settings.Beta, out _motionResponseLabel, (v) => ViewModel.SetBeta(v));
 
-        _handRejectionSlider = CreateSliderRow(_setupTab.transform, res, "Hand Rejection", 10f, 300f, Controller.HandFilterThreshold, out _handRejectionLabel, (v) => {
-            Controller.HandFilterThreshold = v;
-            Controller.SaveSettings();
-        });
+        _handRejectionSlider = CreateSliderRow(_setupTab.transform, res, "Hand Rejection", 10f, 300f, ViewModel.Settings.HandThreshold, out _handRejectionLabel, (v) => ViewModel.SetHandThreshold(v));
 
-        _lineSmoothSlider = CreateSliderRow(_setupTab.transform, res, "Line Smoothness", 0f, 5f, Controller.SpatialBlurIterations, out _lineSmoothLabel, (v) => {
-            Controller.SpatialBlurIterations = (int)v;
-            Controller.SaveSettings();
-        });
+        _lineSmoothSlider = CreateSliderRow(_setupTab.transform, res, "Line Smoothness", 0f, 5f, ViewModel.Settings.SpatialBlur, out _lineSmoothLabel, (v) => ViewModel.SetSpatialBlur(v));
 
         CreateHeader(_setupTab.transform, "CALIBRATION", Color.white);
         CreateButton(_setupTab.transform, res, "Auto-Calibrate Floor (Zero)", () => {
-            Controller.CalibrateFloor();
+            ViewModel.CalibrateFloor();
             if (_calibrationResultLabel != null) 
-                _calibrationResultLabel.text = $"Floor: {Controller.MaxDepthMM:F0}mm | Peak: {Controller.MinDepthMM:F0}mm";
+                _calibrationResultLabel.text = $"Floor: {ViewModel.Settings.MaxDepth:F0}mm | Peak: {ViewModel.Settings.MinDepth:F0}mm";
             UpdateLabels();
         });
-        _calibrationResultLabel = CreateLabel(_setupTab.transform, "Place sensor at 1.5m-2m height", 14, Color.gray);
+        
+        _calibrationResultLabel = CreateLabel(_setupTab.transform, "Ready", 12, Color.gray);
 
-        CreateToggle(_setupTab.transform, res, "Edit Corner Mapping", false, (v) => ToggleCalibration(v));
-
-        _minDepthSlider = CreateSliderRow(_setupTab.transform, res, "Peak Depth [mm]", 0f, 3000f, Controller.MinDepthMM, out _minDepthLabel, (v) => {
-            Controller.MinDepthMM = v;
-            Controller.SaveSettings();
+        CreateHeader(_setupTab.transform, "MANUAL OVERRIDE", Color.white);
+        
+        CreateButton(_setupTab.transform, res, "Calibrate Projector (Corner Pins)", () => {
+             ToggleCalibration(true);
+             ToggleUI(false);
+        });
+        
+        CreateButton(_setupTab.transform, res, "Edit Boundary (ROI)", () => {
+            // Lazy Load
+            if (ROIEditor == null) ROIEditor = FindFirstObjectByType<ROIEditorView>(FindObjectsInactive.Include);
+            
+            if(ROIEditor) {
+                // Late Initialize if needed
+                if(ViewModel != null && ViewModel.Settings != null) ROIEditor.Initialize(ViewModel.Settings);
+                
+                ROIEditor.Show();
+                ToggleUI(false);
+            } else {
+                Debug.LogError("ROIEditor reference missing! Please create a GameObject with 'ROIEditorView' component in the scene.");
+            }
         });
 
-        _maxDepthSlider = CreateSliderRow(_setupTab.transform, res, "Floor Depth [mm]", 0f, 3000f, Controller.MaxDepthMM, out _maxDepthLabel, (v) => {
-            Controller.MaxDepthMM = v;
-            Controller.SaveSettings();
-        });
+        _minDepthLabel = null; 
+        _minDepthSlider = CreateSliderRow(_setupTab.transform, res, "Top (Peak) mm", 0f, 2000f, ViewModel.Settings.MinDepth, out _minDepthLabel, (v) => ViewModel.SetMinDepth(v));
+
+        _maxDepthSlider = CreateSliderRow(_setupTab.transform, res, "Bottom (Floor) mm", 500f, 3000f, ViewModel.Settings.MaxDepth, out _maxDepthLabel, (v) => ViewModel.SetMaxDepth(v));
     }
 
     void BuildWorldTab(DefaultControls.Resources res)
     {
         CreateHeader(_worldTab.transform, "WORLD SETTINGS", Color.white);
 
-        _boundsSizeSlider = CreateSliderRow(_worldTab.transform, res, "Sandbox Size [m]", 5f, 30f, Controller.Width, out _boundsSizeLabel, (v) => {
-            Controller.UpdateMeshDimensions(v);
-            Controller.SaveSettings();
-        });
+        _boundsSizeSlider = CreateSliderRow(_worldTab.transform, res, "Sandbox Size [m]", 5f, 30f, ViewModel.Settings.MeshSize, out _boundsSizeLabel, (v) => ViewModel.SetMeshSize(v));
 
-        CreateToggle(_worldTab.transform, res, "Solid Side Walls", Controller.ShowWalls, (v) => Controller.ShowWalls = v);
+        CreateToggle(_worldTab.transform, res, "Solid Side Walls", ViewModel.Settings.ShowWalls, (v) => ViewModel.SetShowWalls(v));
 
-        CreateToggle(_worldTab.transform, res, "Flat Mapping (2D)", Controller.FlatMode, (v) => {
-            Controller.FlatMode = v;
-            Controller.SaveSettings();
-        });
+        CreateToggle(_worldTab.transform, res, "Flat Mapping (2D)", ViewModel.Settings.FlatMode, (v) => ViewModel.SetFlatMode(v));
 
         CreateHeader(_worldTab.transform, "SIMULATION MODE", Color.yellow);
-        CreateToggle(_worldTab.transform, res, "Enable Virtual Sand", Controller.EnableSimulation, (v) => {
-            Controller.EnableSimulation = v;
-        });
+        CreateToggle(_worldTab.transform, res, "Enable Virtual Sand", ViewModel.Controller != null && ViewModel.Controller.IsSimulationEnabled, (v) => ViewModel.SetEnableSimulation(v));
 
-        CreateSliderRow(_worldTab.transform, res, "Terrain Chaos", 0f, 0.15f, Controller.NoiseScale, out _noiseScaleLabel, (v) => {
-            Controller.NoiseScale = v;
-            Controller.SaveSettings();
-        });
+        CreateSliderRow(_worldTab.transform, res, "Terrain Chaos", 0f, 0.15f, ViewModel.Settings.NoiseScale, out _noiseScaleLabel, (v) => ViewModel.SetNoiseScale(v));
 
-        CreateSliderRow(_worldTab.transform, res, "Slide Speed", 0f, 3f, Controller.MoveSpeed, out _moveSpeedLabel, (v) => {
-            Controller.MoveSpeed = v;
-            Controller.SaveSettings();
-        });
+        CreateSliderRow(_worldTab.transform, res, "Slide Speed", 0f, 3f, ViewModel.Settings.MoveSpeed, out _moveSpeedLabel, (v) => ViewModel.SetMoveSpeed(v));
         
         CreateHeader(_worldTab.transform, "ADMIN", Color.gray);
         CreateButton(_worldTab.transform, res, "Cycle Monitor Camera", () => CycleCameraView());
@@ -1002,112 +934,113 @@ public class SandboxUI : MonoBehaviour
 
     void UpdateLabels()
     {
-        if (_heightLabel == null) return;
+        if (_heightLabel == null || ViewModel?.Settings == null) return;
 
         // Use StringBuilder to avoid GC
-        _sb.Clear(); _sb.Append("Hz: ").Append(Controller.HeightScale.ToString("F2"));
+        _sb.Clear(); _sb.Append("Hz: ").Append(ViewModel.Settings.HeightScale.ToString("F2"));
         // Add current preset name for feedback
-        _sb.Append(" (").Append(Controller.CurrentGradientPreset.ToString()).Append(")");
+        _sb.Append(" (").Append(ViewModel.Settings.ColorScheme.ToString()).Append(")");
         _heightLabel.text = _sb.ToString();
 
         if (_minDepthLabel) {
-            _sb.Clear(); _sb.Append("mm: ").Append(Controller.MinDepthMM.ToString("F0"));
+            _sb.Clear(); _sb.Append("mm: ").Append(ViewModel.Settings.MinDepth.ToString("F0"));
             _minDepthLabel.text = _sb.ToString();
         }
 
         if (_maxDepthLabel) {
-            _sb.Clear(); _sb.Append("mm: ").Append(Controller.MaxDepthMM.ToString("F0"));
+            _sb.Clear(); _sb.Append("mm: ").Append(ViewModel.Settings.MaxDepth.ToString("F0"));
             _maxDepthLabel.text = _sb.ToString();
         }
 
         if (_tintStrengthLabel) {
-            _sb.Clear(); _sb.Append("%: ").Append((Controller.TintStrength * 100).ToString("F0"));
+            _sb.Clear(); _sb.Append("%: ").Append((ViewModel.Settings.TintStrength * 100).ToString("F0"));
             _tintStrengthLabel.text = _sb.ToString();
         }
 
         if (_sandScaleLabel) {
-            _sb.Clear(); _sb.Append("x: ").Append(Controller.SandScale.ToString("F1"));
+            _sb.Clear(); _sb.Append("x: ").Append(ViewModel.Settings.SandScale.ToString("F1"));
             _sandScaleLabel.text = _sb.ToString();
         }
 
         if (_waterLevelLabel) {
-            _sb.Clear(); _sb.Append("m: ").Append(Controller.WaterLevel.ToString("F2"));
+            _sb.Clear(); _sb.Append("m: ").Append(ViewModel.Settings.WaterLevel.ToString("F2"));
             _waterLevelLabel.text = _sb.ToString();
         }
 
         if (_colorShiftLabel) {
-            _sb.Clear(); _sb.Append("s: ").Append(Controller.ColorShift.ToString("F2"));
+            _sb.Clear(); _sb.Append("s: ").Append(ViewModel.Settings.ColorShift.ToString("F2"));
             _colorShiftLabel.text = _sb.ToString();
         }
 
         if (_contourIntervalLabel) {
-            _sb.Clear(); _sb.Append("m: ").Append(Controller.ContourInterval.ToString("F2"));
+            _sb.Clear(); _sb.Append("m: ").Append(ViewModel.Settings.ContourInterval.ToString("F2"));
             _contourIntervalLabel.text = _sb.ToString();
         }
 
         if (_contourThicknessLabel) {
-            _sb.Clear(); _sb.Append("px: ").Append(Controller.ContourThickness.ToString("F1"));
+            _sb.Clear(); _sb.Append("px: ").Append(ViewModel.Settings.ContourThickness.ToString("F1"));
             _contourThicknessLabel.text = _sb.ToString();
         }
 
         if (_staticStabilityLabel) {
-            _sb.Clear(); _sb.Append("v: ").Append(Controller.MinCutoff.ToString("F2"));
+            _sb.Clear(); _sb.Append("v: ").Append(ViewModel.Settings.MinCutoff.ToString("F2"));
             _staticStabilityLabel.text = _sb.ToString();
         }
 
         if (_motionResponseLabel) {
-            _sb.Clear(); _sb.Append("v: ").Append(Controller.Beta.ToString("F3"));
+            _sb.Clear(); _sb.Append("v: ").Append(ViewModel.Settings.Beta.ToString("F3"));
             _motionResponseLabel.text = _sb.ToString();
         }
 
         if (_handRejectionLabel) {
-            _sb.Clear(); _sb.Append("mm: ").Append(Controller.HandFilterThreshold.ToString("F0"));
+            _sb.Clear(); _sb.Append("mm: ").Append(ViewModel.Settings.HandThreshold.ToString("F0"));
             _handRejectionLabel.text = _sb.ToString();
         }
 
         if (_lineSmoothLabel) {
-            _sb.Clear(); _sb.Append("Iter: ").Append(Controller.SpatialBlurIterations);
+            _sb.Clear(); _sb.Append("Iter: ").Append(ViewModel.Settings.SpatialBlur);
             _lineSmoothLabel.text = _sb.ToString();
         }
 
         if (_noiseScaleLabel) {
-            _sb.Clear(); _sb.Append("x: ").Append(Controller.NoiseScale.ToString("F3"));
+            _sb.Clear(); _sb.Append("x: ").Append(ViewModel.Settings.NoiseScale.ToString("F3"));
             _noiseScaleLabel.text = _sb.ToString();
         }
 
         if (_moveSpeedLabel) {
-            _sb.Clear(); _sb.Append("v: ").Append(Controller.MoveSpeed.ToString("F2"));
+            _sb.Clear(); _sb.Append("v: ").Append(ViewModel.Settings.MoveSpeed.ToString("F2"));
             _moveSpeedLabel.text = _sb.ToString();
         }
 
         if (_causticIntensityLabel) {
-            _sb.Clear(); _sb.Append("x: ").Append(Controller.CausticIntensity.ToString("F2"));
+            _sb.Clear(); _sb.Append("x: ").Append(ViewModel.Settings.CausticIntensity.ToString("F2"));
             _causticIntensityLabel.text = _sb.ToString();
         }
 
         if (_causticScaleLabel) {
-            _sb.Clear(); _sb.Append("x: ").Append(Controller.CausticScale.ToString("F3"));
+            _sb.Clear(); _sb.Append("x: ").Append(ViewModel.Settings.CausticScale.ToString("F3"));
             _causticScaleLabel.text = _sb.ToString();
         }
 
         if (_causticSpeedLabel) {
-            _sb.Clear(); _sb.Append("v: ").Append(Controller.CausticSpeed.ToString("F2"));
+            _sb.Clear(); _sb.Append("v: ").Append(ViewModel.Settings.CausticSpeed.ToString("F2"));
             _causticSpeedLabel.text = _sb.ToString();
         }
 
         if (_waterOpacityLabel) {
-            _sb.Clear(); _sb.Append("%: ").Append((Controller.WaterOpacity * 100).ToString("F0"));
+            _sb.Clear(); _sb.Append("%: ").Append((ViewModel.Settings.WaterOpacity * 100).ToString("F0"));
             _waterOpacityLabel.text = _sb.ToString();
         }
 
         if (_sparkleIntensityLabel) {
-            _sb.Clear(); _sb.Append("x: ").Append(Controller.SparkleIntensity.ToString("F2"));
+            _sb.Clear(); _sb.Append("x: ").Append(ViewModel.Settings.SparkleIntensity.ToString("F2"));
             _sparkleIntensityLabel.text = _sb.ToString();
         }
 
         if (_boundsSizeLabel) {
-            _sb.Clear(); _sb.Append("m: ").Append(Controller.Width.ToString("F1"));
+            _sb.Clear(); _sb.Append("m: ").Append(ViewModel.Settings.MeshSize.ToString("F1"));
             _boundsSizeLabel.text = _sb.ToString();
         }
+    }
     }
 }
