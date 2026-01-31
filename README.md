@@ -56,23 +56,23 @@ This project uses a **Zero-Copy GPGPU Pipeline** to maximize performance. Data s
 
 ```mermaid
 graph TD
-    Sensor[Azure Kinect DK / File] -->|Raw Depth Buffer| CS_Filter[Compute Shader: 1-Euro Filter]
-    CS_Filter -->|Filtered Depth| CS_Sim[Compute Shader: Terrain Simulation]
+    Sensor["Azure Kinect DK / File"] -->|"Raw Depth Buffer"| CS_Filter["Compute Shader: 1-Euro Filter"]
+    CS_Filter -->|"Filtered Depth"| CS_Sim["Compute Shader: Terrain Simulation"]
     
-    subgraph GPU [GPU Memory]
+    subgraph "GPU Memory"
         CS_Filter
         CS_Sim
-        CS_Gen[Compute Shader: Mesh Generation]
-        VB[Vertex Buffer]
+        CS_Gen["Compute Shader: Mesh Generation"]
+        VB["Vertex Buffer"]
     end
     
-    CS_Sim -->|Erosion/Flow Data| CS_Gen
-    CS_Gen -->|Write Vertices| VB
+    CS_Sim -->|"Erosion/Flow Data"| CS_Gen
+    CS_Gen -->|"Write Vertices"| VB
     
-    VB -->|Zero-Copy Draw| Renderer[Graphics.RenderPrimitives]
+    VB -->|"Zero-Copy Draw"| Renderer["Graphics.RenderPrimitives"]
     
-    UI[SandboxUI / ViewModel] -->|Settings Parameter| CS_Sim
-    Calibration[DLT Solver] -->|Matrix4x4| CS_Gen
+    UI["SandboxUI / ViewModel"] -->|"Settings Parameter"| CS_Sim
+    Calibration["DLT Solver"] -->|"Matrix4x4"| CS_Gen
 ```
 
 ### **Pipeline Flow**
