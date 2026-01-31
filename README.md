@@ -56,7 +56,7 @@ This project uses a **Zero-Copy GPGPU Pipeline** to maximize performance. Data s
 
 ```mermaid
 graph TD
-    Sensor[Azure Kinect / File] -->|Raw Depth Buffer| CS_Filter[Compute Shader: 1-Euro Filter]
+    Sensor[Azure Kinect DK / File] -->|Raw Depth Buffer| CS_Filter[Compute Shader: 1-Euro Filter]
     CS_Filter -->|Filtered Depth| CS_Sim[Compute Shader: Terrain Simulation]
     
     subgraph GPU [GPU Memory]
