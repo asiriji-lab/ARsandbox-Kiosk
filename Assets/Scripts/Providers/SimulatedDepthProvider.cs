@@ -28,6 +28,12 @@ public class SimulatedDepthProvider : MonoBehaviour, IDepthProvider
     [Header("Debug")]
     public bool SimulateHang = false;
 
+    [Header("Simulated Hand")]
+    public bool HandActive = false;
+    public Vector2 HandPos = new Vector2(0.5f, 0.5f); // 0-1 range
+    public float HandRadius = 0.1f; // Percentage of resolution
+    public float HandStrength = 0.5f; // How much it pushes sand
+
     private NativeArray<ushort> _depthBuffer;
     private ushort[] _depthDataManaged; 
     private float _noiseOffsetX;
@@ -37,6 +43,11 @@ public class SimulatedDepthProvider : MonoBehaviour, IDepthProvider
     public bool IsRunning => _isRunning;
     public int Width => Resolution;
     public int Height => Resolution;
+    
+    // Color: Simulated mode returns null (no real camera)
+    public int ColorWidth => 0;
+    public int ColorHeight => 0;
+    public Texture2D GetColorTexture() => null;
 
     public void Initialize()
     {
@@ -55,9 +66,24 @@ public class SimulatedDepthProvider : MonoBehaviour, IDepthProvider
     public ushort[] GetDepthData()
     {
         if (!_isRunning || SimulateHang) return null;
+        
+        UpdateHandInput();
         GenerateFrame();
+        
         _depthBuffer.CopyTo(_depthDataManaged);
         return _depthDataManaged;
+    }
+
+    void UpdateHandInput()
+    {
+        // Simple Mouse -> Hand mapping
+        if (UnityEngine.InputSystem.Mouse.current != null)
+        {
+            HandActive = UnityEngine.InputSystem.Mouse.current.leftButton.isPressed;
+            Vector2 mousePos = UnityEngine.InputSystem.Mouse.current.position.ReadValue();
+            // INVERTED: Camera is rotated 180 degrees (Top-Down Flipped), so input must be inverted to match visual.
+            HandPos = new Vector2(1.0f - (mousePos.x / Screen.width), 1.0f - (mousePos.y / Screen.height));
+        }
     }
 
     public string GetDeviceName() => "Simulated (Burst Optimized)";
@@ -71,6 +97,12 @@ public class SimulatedDepthProvider : MonoBehaviour, IDepthProvider
         public float DetailAmount, Steepness, Amplitude, HeightOffset;
         public float MinDepth, MaxDepth;
         
+        // Hand Params
+        public bool HandActive;
+        public float2 HandPos;
+        public float HandRadius;
+        public float HandStrength;
+        
         [WriteOnly] public NativeArray<ushort> Output;
 
         public void Execute(int i)
@@ -78,18 +110,33 @@ public class SimulatedDepthProvider : MonoBehaviour, IDepthProvider
             int x = i % Resolution;
             int z = i / Resolution;
 
+            float xNorm = (float)x / Resolution;
+            float zNorm = (float)z / Resolution;
+
             float xCoord = (float)x * NoiseScale + OffsetX;
             float zCoord = (float)z * NoiseScale + OffsetZ;
 
-            // Simplex noise is much faster than Mathf.PerlinNoise
+            // 1. Generate Terrain Noise
             float noise1 = (noise.snoise(new float2(xCoord, zCoord)) + 1.0f) * 0.5f;
             float noise2 = (noise.snoise(new float2(xCoord * 2.0f, zCoord * 2.0f)) + 1.0f) * 0.5f;
             
             float finalNoise = math.lerp(noise1, (noise1 + noise2) * 0.66f, DetailAmount);
             finalNoise = math.pow(finalNoise, Steepness) * Amplitude + HeightOffset;
-            finalNoise = math.saturate(finalNoise);
+            // No saturate here - allow pointy peaks that exceed the range
+            // finalNoise = math.saturate(finalNoise);
 
-            // HARD-SHELL CLAMP: Prevent simulation from ever outputting 0 (shadow)
+            // 2. Inject Simulated Hand (Gaussian)
+            if (HandActive)
+            {
+                float dist = math.distance(new float2(xNorm, zNorm), HandPos);
+                if (dist < HandRadius * 2.0f)
+                {
+                    float handEffect = math.exp(-(dist * dist) / (HandRadius * HandRadius));
+                    finalNoise = math.lerp(finalNoise, 1.0f - HandStrength, handEffect);
+                }
+            }
+
+            // 3. Final Clamping
             float depthVal = math.lerp(MaxDepth, MinDepth, finalNoise);
             Output[i] = (ushort)(math.clamp(depthVal, 1.0f, 65000.0f) + 0.5f);
         }
@@ -108,6 +155,12 @@ public class SimulatedDepthProvider : MonoBehaviour, IDepthProvider
             DetailAmount = DetailAmount, Steepness = Steepness,
             Amplitude = Amplitude, HeightOffset = HeightOffset,
             MinDepth = MinDepthMM, MaxDepth = MaxDepthMM,
+            
+            HandActive = HandActive,
+            HandPos = new float2(HandPos.x, HandPos.y),
+            HandRadius = HandRadius,
+            HandStrength = HandStrength,
+            
             Output = _depthBuffer
         };
 

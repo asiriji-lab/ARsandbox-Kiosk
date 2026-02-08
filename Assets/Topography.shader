@@ -67,7 +67,7 @@ Shader "Custom/Topography"
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #pragma shader_feature_local _PROCEDURAL_ON
+            #pragma multi_compile_local _ _PROCEDURAL_ON
             
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
@@ -127,6 +127,24 @@ Shader "Custom/Topography"
                 float _CausticIntensity;
             CBUFFER_END
 
+            // --- ROI MASKING DATA ---
+            // 4 Points defining the polygon. Unity packs this as float4 array, we use x,y.
+            float4 _BoundaryPoints[4];
+
+            bool IsPointInPolygon(float2 p, float4 corners[4])
+            {
+                bool inside = false;
+                for (int i = 0, j = 3; i < 4; j = i++)
+                {
+                    if (((corners[i].y > p.y) != (corners[j].y > p.y)) &&
+                        (p.x < (corners[j].x - corners[i].x) * (p.y - corners[i].y) / (corners[j].y - corners[i].y) + corners[i].x))
+                    {
+                        inside = !inside;
+                    }
+                }
+                return inside;
+            }
+
             TEXTURE2D(_ColorRamp);
             SAMPLER(sampler_ColorRamp);
 
@@ -184,6 +202,14 @@ Shader "Custom/Topography"
 
             half4 frag(Varyings IN) : SV_Target
             {
+                // --- ROI MASKING CHECK ---
+                // Only discard if we have valid points (optional check, but loop assumes valid)
+                // We default to (0,0),(0,1),(1,1),(1,0) in scripts, so inside check is always true for full screen.
+                if (!IsPointInPolygon(IN.uv, _BoundaryPoints))
+                {
+                    discard;
+                }
+
                 // Use UV2.x as the robust height signal (works even if mesh is flat)
                 // Fallback to World Y if UV2 is empty (optional, but we'll assume script sets it)
                 float height = IN.uv2.x; 

@@ -10,6 +10,7 @@ using UnityEngine.Serialization;
 /// </summary>
 namespace ARSandbox.UI
 {
+    using ARSandbox.Core;
 public class SandboxUI : MonoBehaviour
 {
     [Header("MVVM")]
@@ -60,8 +61,20 @@ public class SandboxUI : MonoBehaviour
     private Slider _causticIntensitySlider;
     private Slider _causticScaleSlider;
     private Slider _causticSpeedSlider;
+    private Slider _meshResSlider; // [NEW]
     private Slider _waterOpacitySlider;
     private Slider _sparkleIntensitySlider;
+    private Slider _noiseScaleSlider; // [NEW]
+    private Slider _moveSpeedSlider;  // [NEW]
+    
+    // Contextual Controls Groups (to show/hide)
+    private GameObject _kioskOnlyGroup; // [NEW]
+    private GameObject _simOnlyGroup;   // [NEW]
+    private Image _modeBanner;          // [NEW]
+    private Text _modeBannerText;       // [NEW]
+    private GameObject _alignButton;    // [NEW]
+    private GameObject _maskButton;     // [NEW]
+    private GameObject _autoFloorButton; // [NEW]
     
     // Labels
     private Text _heightLabel;
@@ -80,6 +93,7 @@ public class SandboxUI : MonoBehaviour
     private Text _noiseScaleLabel;
     private Text _moveSpeedLabel;
     private Text _boundsSizeLabel;
+    private Text _meshResLabel; // [NEW]
     private Text _lineSmoothLabel;
     private Text _causticIntensityLabel;
     private Text _causticScaleLabel;
@@ -87,15 +101,17 @@ public class SandboxUI : MonoBehaviour
     private Text _waterOpacityLabel;
     private Text _sparkleIntensityLabel;
     private Text _calibrationResultLabel;
+    private Text _statusText; // [NEW] for general status messages
 
     // Optimization: Cached Strings
     private StringBuilder _sb = new StringBuilder();
     private float _lastMouseMoveTime;
     private const float UI_IDLE_TIME = 10f;
     private bool _isFaded = false;
+    private float _secretGestureTimer = 0f; // [NEW] For Kiosk Admin Access
 
     // Camera Views
-    public enum CamView { Top, Perspective, Side }
+    // CamView moved to ARSandbox.Core
     private CamView _currentView = CamView.Top;
     private float _cameraZoomOffset = 0f; // Persists zoom across view changes
 
@@ -103,10 +119,7 @@ public class SandboxUI : MonoBehaviour
 
     void CycleCameraView(int direction)
     {
-        int next = (int)_currentView + direction;
-        if (next < 0) next = 2; // Wrap around for -1
-        else if (next > 2) next = 0; // Wrap around for +1
-        _currentView = (CamView)next;
+        _currentView = CameraStateLogic.GetNextView(_currentView, direction);
         UpdateCameraTransform();
     }
 
@@ -131,7 +144,8 @@ public class SandboxUI : MonoBehaviour
             case CamView.Top:
                 // Standard: Look Down
                 cam.transform.position = new Vector3(0, effectiveSize, 0);
-                cam.transform.rotation = Quaternion.Euler(90, 0, 0);
+                // FLIPPED: (90, 0, 180) rotates the view 180 degrees for inverted projectors
+                cam.transform.rotation = Quaternion.Euler(90, 0, 180);
                 break;
             case CamView.Perspective:
                 // 45 Degree
@@ -154,7 +168,7 @@ public class SandboxUI : MonoBehaviour
         // Auto-find ROI Editor if not assigned (Include Inactive)
         if (ROIEditor == null) ROIEditor = FindFirstObjectByType<ROIEditorView>(FindObjectsInactive.Include);
         if (ROIEditor != null && ViewModel != null && ViewModel.Settings != null)
-             ROIEditor.Initialize(ViewModel.Settings);
+             ROIEditor.Initialize(ViewModel.Settings, ViewModel);
         
         // "External" Initialization
         if (ViewModel == null)
@@ -188,10 +202,11 @@ public class SandboxUI : MonoBehaviour
         Debug.Log("SandboxUI: Initialization complete. UI Visible.");
     }
 
-    void Update()
+    public void Update()
     {
         HandleInput();
         HandleAutoHide();
+        HandleSecretGesture(); // [NEW]
         
         if (_isVisible)
         {
@@ -234,6 +249,35 @@ public class SandboxUI : MonoBehaviour
         }
     }
 
+    void HandleSecretGesture()
+    {
+        // Top-Left Corner (100x100 pixels)
+        // Screen (0,0) is usually Bottom-Left in Unity!
+        // So Top-Left is (0, Screen.height)
+        
+        if (Mouse.current != null && Mouse.current.leftButton.isPressed)
+        {
+            Vector2 pos = Mouse.current.position.ReadValue();
+            if (pos.x < 100 && pos.y > (Screen.height - 100))
+            {
+                _secretGestureTimer += Time.deltaTime;
+                if (_secretGestureTimer > 2.0f)
+                {
+                    if (!_isVisible) 
+                    {
+                        ToggleUI(true);
+                        Debug.Log("Admin Access via Secret Gesture!");
+                        // Feedback? Maybe play a sound or flash?
+                    }
+                    _secretGestureTimer = 0f; // Reset to prevent rapid toggling
+                }
+                return;
+            }
+        }
+        
+        _secretGestureTimer = 0f; // Reset if released or moved out
+    }
+
     void HandleInput()
     {
         bool tab = false;
@@ -257,6 +301,8 @@ public class SandboxUI : MonoBehaviour
             // Continuous Height Control
             if (Keyboard.current.upArrowKey.isPressed) heightInput += 1f;
             if (Keyboard.current.downArrowKey.isPressed) heightInput -= 1f;
+            
+            if (Keyboard.current.eKey.wasPressedThisFrame) ToggleROIEditor();
         }
         else
         {
@@ -277,6 +323,12 @@ public class SandboxUI : MonoBehaviour
         
         if (Input.GetKey(KeyCode.UpArrow)) heightInput += 1f;
         if (Input.GetKey(KeyCode.DownArrow)) heightInput -= 1f;
+        
+        // ROI Editor Shortcut
+        if (Input.GetKeyDown(KeyCode.E))
+        {
+             ToggleROIEditor();
+        }
 #endif
 
         if (heightInput != 0)
@@ -320,6 +372,30 @@ public class SandboxUI : MonoBehaviour
         }
     }
 
+    void ToggleROIEditor()
+    {
+        // Lazy Load
+        if (ROIEditor == null) ROIEditor = FindFirstObjectByType<ROIEditorView>(FindObjectsInactive.Include);
+        
+        if(ROIEditor) {
+            // Late Initialize if needed
+            if(ViewModel != null && ViewModel.Settings != null) ROIEditor.Initialize(ViewModel.Settings, ViewModel);
+            
+            if (ROIEditor.IsActive)
+            {
+                ROIEditor.Hide();
+                ToggleUI(true); // Restore Main UI
+            }
+            else
+            {
+                ROIEditor.Show();
+                ToggleUI(false); // Hide Main UI
+            }
+        } else {
+            Debug.LogError("ROIEditor reference missing! Please create a GameObject with 'ROIEditorView' component in the scene.");
+        }
+    }
+
     void AdjustCameraZoom(float delta)
     {
         // Update persistent zoom offset
@@ -335,10 +411,22 @@ public class SandboxUI : MonoBehaviour
 
     void UpdateCalibrationLogic()
     {
-        // Ensure Texture is up to date
-        if (_calibrationOverlay.texture == null && ViewModel.Controller != null)
+        // Continuously refresh texture for live feed
+        if (ViewModel.Controller != null)
         {
-            _calibrationOverlay.texture = ViewModel.Controller.GetRawDepthTexture();
+            // Prefer Color if available (Kiosk Mode)
+            Texture targetTex = ViewModel.Controller.GetColorTexture();
+            if (targetTex == null) targetTex = ViewModel.Controller.GetRawDepthTexture();
+
+            if (_calibrationOverlay != null)
+            {
+                if (_calibrationOverlay.texture != targetTex)
+                {
+                    _calibrationOverlay.texture = targetTex;
+                    // FLIP: UV (0,1, 1, -1) handles the vertical flip often seen with Kinect textures
+                    _calibrationOverlay.uvRect = new Rect(0, 1, 1, -1);
+                }
+            }
         }
 
         // Handle Dragging
@@ -368,9 +456,12 @@ public class SandboxUI : MonoBehaviour
         {
             // Update Point
             // Screen (Pix) -> Normalized (0..1)
-            // Note: RawImage fills screen, so Screen = Texture Coords roughly
             float normX = Mathf.Clamp01(mousePos.x / Screen.width);
             float normY = Mathf.Clamp01(mousePos.y / Screen.height);
+            
+            // INVERT Y: Match the flipped camera feed AND flipped projector
+            // Top of screen is now Bottom of projection
+            normY = 1.0f - normY; 
 
             // Update Controller
             ViewModel.Settings.CalibrationPoints[_draggingHandleIndex] = new Vector2(normX, normY);
@@ -401,7 +492,9 @@ public class SandboxUI : MonoBehaviour
                 for(int i=0; i<4; i++)
                 {
                     Vector2 norm = ViewModel.Settings.CalibrationPoints[i];
-                    _handles[i].position = new Vector2(norm.x * Screen.width, norm.y * Screen.height);
+                    // INVERT Y: Restore visual position from inverted logic
+                    float visualY = (1.0f - norm.y) * Screen.height;
+                    _handles[i].position = new Vector2(norm.x * Screen.width, visualY);
                 }
             }
         }
@@ -521,14 +614,15 @@ public class SandboxUI : MonoBehaviour
         RectTransform rt = g.AddComponent<RectTransform>();
         rt.anchorMin = Vector2.zero;
         rt.anchorMax = Vector2.one;
-        // rt.sizeDelta = Vector2.zero; // Let layout handle it
 
         VerticalLayoutGroup layout = g.AddComponent<VerticalLayoutGroup>();
         layout.padding = new RectOffset(0, 0, 0, 0);
-        layout.spacing = 5;
-        layout.childControlHeight = false;
+        layout.spacing = 10;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
         layout.childForceExpandHeight = false;
-        layout.childAlignment = TextAnchor.UpperLeft;
+        layout.childAlignment = TextAnchor.UpperCenter;
         
         ContentSizeFitter csf = g.AddComponent<ContentSizeFitter>();
         csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
@@ -542,6 +636,17 @@ public class SandboxUI : MonoBehaviour
         if (_viewTab) _viewTab.SetActive(_activeTabIndex == 0);
         if (_setupTab) _setupTab.SetActive(_activeTabIndex == 1);
         if (_worldTab) _worldTab.SetActive(_activeTabIndex == 2);
+
+        // --- CONTEXTUAL VISIBILITY ---
+        bool isSim = ViewModel.Controller != null && ViewModel.Controller.IsSimulationEnabled;
+        
+        if (_kioskOnlyGroup) _kioskOnlyGroup.SetActive(!isSim);
+        if (_simOnlyGroup) _simOnlyGroup.SetActive(isSim);
+
+        // Specific Button Toggles (Safety)
+        if (_alignButton) _alignButton.SetActive(!isSim);
+        if (_maskButton) _maskButton.SetActive(!isSim);
+        if (_autoFloorButton) _autoFloorButton.SetActive(!isSim);
         
         // Force layout rebuild
         UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(_uiRoot.GetComponent<RectTransform>());
@@ -602,25 +707,65 @@ public class SandboxUI : MonoBehaviour
         _canvasGroup = _uiRoot.AddComponent<CanvasGroup>();
 
         VerticalLayoutGroup layout = _uiRoot.AddComponent<VerticalLayoutGroup>();
-        layout.padding = new RectOffset(15, 15, 15, 15);
+        layout.padding = new RectOffset(0, 0, 15, 15); // Padding shifted to children
         layout.spacing = 10;
         layout.childControlHeight = false;
         layout.childForceExpandHeight = false;
 
+        // 2b. Mode Banner (Amber/Teal)
+        GameObject bannerObj = new GameObject("ModeBanner");
+        bannerObj.transform.SetParent(_uiRoot.transform, false);
+        _modeBanner = bannerObj.AddComponent<Image>();
+        _modeBanner.color = new Color(1f, 0.75f, 0f, 1f); // Deep Amber default
+        RectTransform bannerRT = bannerObj.GetComponent<RectTransform>();
+        bannerRT.sizeDelta = new Vector2(0, 40); // Fixed height
+        
+        GameObject bTextObj = new GameObject("Text");
+        bTextObj.transform.SetParent(bannerObj.transform, false);
+        _modeBannerText = bTextObj.AddComponent<Text>();
+        _modeBannerText.text = "MODE: KIOSK";
+        _modeBannerText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        _modeBannerText.color = Color.black;
+        _modeBannerText.alignment = TextAnchor.MiddleCenter;
+        _modeBannerText.fontStyle = FontStyle.Bold;
+        _modeBannerText.fontSize = 20;
+        bTextObj.GetComponent<RectTransform>().anchorMin = Vector2.zero;
+        bTextObj.GetComponent<RectTransform>().anchorMax = Vector2.one;
+        bTextObj.GetComponent<RectTransform>().sizeDelta = Vector2.zero;
+
+        // Space for header content
+        GameObject innerContent = new GameObject("InnerContent");
+        innerContent.transform.SetParent(_uiRoot.transform, false);
+        VerticalLayoutGroup innerLayout = innerContent.AddComponent<VerticalLayoutGroup>();
+        innerLayout.padding = new RectOffset(15, 15, 0, 0);
+        innerLayout.spacing = 10;
+        innerLayout.childControlHeight = true;
+        innerLayout.childForceExpandHeight = false;
+
+        // Ensure innerContent stretches to fill or fits children
+        ContentSizeFitter innerCSF = innerContent.AddComponent<ContentSizeFitter>();
+        innerCSF.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        innerCSF.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+        
+        // Add layout element to innerContent so _uiRoot's layout respects it
+        LayoutElement innerLE = innerContent.AddComponent<LayoutElement>();
+        innerLE.flexibleHeight = 1;
+
         // 3. Header & Tabs
-        CreateLabel(_uiRoot.transform, "SANDBOX COMMAND", 24, Color.yellow);
+        CreateLabel(innerContent.transform, "SANDBOX COMMAND", 24, Color.yellow);
+        _statusText = CreateLabel(innerContent.transform, "", 14, Color.cyan);
         
         DefaultControls.Resources res = new DefaultControls.Resources();
         res.background = BackgroundSprite;
         res.knob = KnobSprite;
         res.standard = BackgroundSprite;
 
-        BuildTabs(_uiRoot.transform, res);
+        BuildTabs(innerContent.transform, res);
 
         // 4. Content Groups
-        _viewTab = CreateGroup(_uiRoot.transform, "View_Tab");
-        _setupTab = CreateGroup(_uiRoot.transform, "Setup_Tab");
-        _worldTab = CreateGroup(_uiRoot.transform, "World_Tab");
+        _viewTab = CreateGroup(innerContent.transform, "View_Tab");
+        _setupTab = CreateGroup(innerContent.transform, "Setup_Tab");
+        _worldTab = CreateGroup(innerContent.transform, "World_Tab");
 
         BuildViewTab(res);
         BuildSetupTab(res);
@@ -641,6 +786,11 @@ public class SandboxUI : MonoBehaviour
 
         RectTransform rt = tabRow.GetComponent<RectTransform>();
         rt.sizeDelta = new Vector2(0, 40);
+        
+        // Add LayoutElement so it's not squashed
+        LayoutElement le = tabRow.AddComponent<LayoutElement>();
+        le.minHeight = 40;
+        le.preferredHeight = 40;
 
         string[] labels = { "VIEW", "SETUP", "WORLD" };
         for (int i = 0; i < labels.Length; i++)
@@ -716,70 +866,123 @@ public class SandboxUI : MonoBehaviour
         CreateHeader(_setupTab.transform, "SENSOR & STABILITY", Color.green);
 
         _staticStabilitySlider = CreateSliderRow(_setupTab.transform, res, "Anti-Shake", 0.1f, 5.0f, ViewModel.Settings.MinCutoff, out _staticStabilityLabel, (v) => ViewModel.SetMinCutoff(v));
-
         _motionResponseSlider = CreateSliderRow(_setupTab.transform, res, "Follow Speed", 0.001f, 0.2f, ViewModel.Settings.Beta, out _motionResponseLabel, (v) => ViewModel.SetBeta(v));
-
         _handRejectionSlider = CreateSliderRow(_setupTab.transform, res, "Hand Rejection", 10f, 300f, ViewModel.Settings.HandThreshold, out _handRejectionLabel, (v) => ViewModel.SetHandThreshold(v));
-
         _lineSmoothSlider = CreateSliderRow(_setupTab.transform, res, "Line Smoothness", 0f, 5f, ViewModel.Settings.SpatialBlur, out _lineSmoothLabel, (v) => ViewModel.SetSpatialBlur(v));
 
-        CreateHeader(_setupTab.transform, "CALIBRATION", Color.white);
-        CreateButton(_setupTab.transform, res, "Auto-Calibrate Floor (Zero)", () => {
+        // --- KIOSK ONLY SECTION ---
+        _kioskOnlyGroup = CreateGroup(_setupTab.transform, "Kiosk_Only_Setup");
+        
+        CreateHeader(_kioskOnlyGroup.transform, "CALIBRATION", Color.white);
+        _autoFloorButton = CreateButton(_kioskOnlyGroup.transform, res, "Auto-Calibrate Floor (Zero)", () => {
             ViewModel.CalibrateFloor();
             if (_calibrationResultLabel != null) 
                 _calibrationResultLabel.text = $"Floor: {ViewModel.Settings.MaxDepth:F0}mm | Peak: {ViewModel.Settings.MinDepth:F0}mm";
             UpdateLabels();
         });
         
-        _calibrationResultLabel = CreateLabel(_setupTab.transform, "Ready", 12, Color.gray);
+        _calibrationResultLabel = CreateLabel(_kioskOnlyGroup.transform, "Ready", 12, Color.gray);
 
-        CreateHeader(_setupTab.transform, "MANUAL OVERRIDE", Color.white);
+        CreateHeader(_kioskOnlyGroup.transform, "MANUAL OVERRIDE", Color.white);
         
-        CreateButton(_setupTab.transform, res, "Calibrate Projector (Corner Pins)", () => {
+        _alignButton = CreateButton(_kioskOnlyGroup.transform, res, "Align Projector (Keystone)", () => {
              ToggleCalibration(true);
              ToggleUI(false);
         });
         
-        CreateButton(_setupTab.transform, res, "Edit Boundary (ROI)", () => {
-            // Lazy Load
+        _maskButton = CreateButton(_kioskOnlyGroup.transform, res, "Define Active Area (Mask)", () => {
             if (ROIEditor == null) ROIEditor = FindFirstObjectByType<ROIEditorView>(FindObjectsInactive.Include);
-            
             if(ROIEditor) {
-                // Late Initialize if needed
-                if(ViewModel != null && ViewModel.Settings != null) ROIEditor.Initialize(ViewModel.Settings);
-                
+                if(ViewModel != null && ViewModel.Settings != null) ROIEditor.Initialize(ViewModel.Settings, ViewModel);
                 ROIEditor.Show();
                 ToggleUI(false);
-            } else {
-                Debug.LogError("ROIEditor reference missing! Please create a GameObject with 'ROIEditorView' component in the scene.");
             }
         });
 
-        _minDepthLabel = null; 
         _minDepthSlider = CreateSliderRow(_setupTab.transform, res, "Top (Peak) mm", 0f, 2000f, ViewModel.Settings.MinDepth, out _minDepthLabel, (v) => ViewModel.SetMinDepth(v));
-
         _maxDepthSlider = CreateSliderRow(_setupTab.transform, res, "Bottom (Floor) mm", 500f, 3000f, ViewModel.Settings.MaxDepth, out _maxDepthLabel, (v) => ViewModel.SetMaxDepth(v));
     }
 
     void BuildWorldTab(DefaultControls.Resources res)
     {
         CreateHeader(_worldTab.transform, "WORLD SETTINGS", Color.white);
-
         _boundsSizeSlider = CreateSliderRow(_worldTab.transform, res, "Sandbox Size [m]", 5f, 30f, ViewModel.Settings.MeshSize, out _boundsSizeLabel, (v) => ViewModel.SetMeshSize(v));
-
+        _meshResSlider = CreateSliderRow(_worldTab.transform, res, "Surface Detail", 100f, 500f, ViewModel.Settings.MeshResolution, out _meshResLabel, (v) => ViewModel.SetMeshResolution(v));
         CreateToggle(_worldTab.transform, res, "Solid Side Walls", ViewModel.Settings.ShowWalls, (v) => ViewModel.SetShowWalls(v));
-
         CreateToggle(_worldTab.transform, res, "Flat Mapping (2D)", ViewModel.Settings.FlatMode, (v) => ViewModel.SetFlatMode(v));
 
-        CreateHeader(_worldTab.transform, "SIMULATION MODE", Color.yellow);
-        CreateToggle(_worldTab.transform, res, "Enable Virtual Sand", ViewModel.Controller != null && ViewModel.Controller.IsSimulationEnabled, (v) => ViewModel.SetEnableSimulation(v));
+        // --- SIM ONLY SECTION ---
+        _simOnlyGroup = CreateGroup(_worldTab.transform, "Sim_Only_Settings");
+        CreateHeader(_simOnlyGroup.transform, "SIMULATION CONTROLS", Color.yellow);
+        _noiseScaleSlider = CreateSliderRow(_simOnlyGroup.transform, res, "Terrain Chaos", 0f, 0.15f, ViewModel.Settings.NoiseScale, out _noiseScaleLabel, (v) => ViewModel.SetNoiseScale(v));
+        _moveSpeedSlider = CreateSliderRow(_simOnlyGroup.transform, res, "Slide Speed", 0f, 3f, ViewModel.Settings.MoveSpeed, out _moveSpeedLabel, (v) => ViewModel.SetMoveSpeed(v));
 
-        CreateSliderRow(_worldTab.transform, res, "Terrain Chaos", 0f, 0.15f, ViewModel.Settings.NoiseScale, out _noiseScaleLabel, (v) => ViewModel.SetNoiseScale(v));
-
-        CreateSliderRow(_worldTab.transform, res, "Slide Speed", 0f, 3f, ViewModel.Settings.MoveSpeed, out _moveSpeedLabel, (v) => ViewModel.SetMoveSpeed(v));
-        
-        CreateHeader(_worldTab.transform, "ADMIN", Color.gray);
+        CreateHeader(_worldTab.transform, "SYSTEM", Color.white);
+        CreateToggle(_worldTab.transform, res, "Override Sensor (Simulated)", ViewModel.Controller != null && ViewModel.Controller.IsSimulationEnabled, (v) => OnToggleSimulation(v));
         CreateButton(_worldTab.transform, res, "Cycle Monitor Camera", () => CycleCameraView());
+    }
+
+    private void OnToggleSimulation(bool useSim)
+    {
+        if (useSim)
+        {
+            // Simple: Just switch to simulation
+            ViewModel.SetEnableSimulation(true);
+            UpdateLabels();
+            UpdateVisibility();
+        }
+        else
+        {
+            // Complex: Attempt to re-enable hardware with 3s watchdog
+            StartCoroutine(HandshakeHardwareCoroutine());
+        }
+    }
+
+    private System.Collections.IEnumerator HandshakeHardwareCoroutine()
+    {
+        SetStatusText("SEARCHING FOR SENSOR...", Color.cyan);
+        
+        // 1. Trigger Hardware Activation
+        ViewModel.SetEnableSimulation(false); // This starts the provider
+        
+        // 2. 3-Second Watchdog
+        float timer = 0f;
+        while (timer < 3.0f)
+        {
+            timer += Time.deltaTime;
+            
+            // Success Check (Does the controller have a valid running provider?)
+            if (ViewModel.Controller != null && 
+                ViewModel.Controller.IsSimulationEnabled == false && 
+                ViewModel.Controller.GetRawDepthTexture() != null) // Simple heuristic for "it's working"
+            {
+                SetStatusText("SENSOR CONNECTED", Color.green);
+                UpdateLabels();
+                UpdateVisibility();
+                yield break;
+            }
+            yield return null;
+        }
+
+        // 3. Timeout Failure
+        Debug.LogWarning("SandboxUI: Hardware Handshake Timeout (3s). Reverting to Simulation.");
+        ViewModel.SetEnableSimulation(true); // REVERT
+        SetStatusText("HARDWARE TIMEOUT: RETURNING TO SIM", Color.red);
+        UpdateLabels();
+        UpdateVisibility();
+        
+        yield return new WaitForSeconds(2f);
+        SetStatusText("", Color.white);
+    }
+
+    private void SetStatusText(string msg, Color col)
+    {
+        if (_statusText)
+        {
+            _statusText.text = msg;
+            _statusText.color = col;
+        }
+        Debug.Log($"[STATUS] {msg}");
     }
 
     // --- Component Factories ---
@@ -818,6 +1021,10 @@ public class SandboxUI : MonoBehaviour
         
         RectTransform rt = row.GetComponent<RectTransform>();
         rt.sizeDelta = new Vector2(0, 35);
+
+        LayoutElement le = row.AddComponent<LayoutElement>();
+        le.minHeight = 35;
+        le.preferredHeight = 35;
 
         // 1. Label (Fixed Width)
         Text t = CreateLabel(row.transform, label, 14, Color.white);
@@ -867,6 +1074,11 @@ public class SandboxUI : MonoBehaviour
         RectTransform rt = tObj.GetComponent<RectTransform>();
         rt.sizeDelta = new Vector2(0, size + 5);
 
+        // Add LayoutElement for VerticalLayoutGroups
+        LayoutElement le = tObj.AddComponent<LayoutElement>();
+        le.minHeight = size + 5;
+        le.preferredHeight = size + 5;
+
         return t;
     }
 
@@ -900,9 +1112,25 @@ public class SandboxUI : MonoBehaviour
 
         RectTransform rt = tObj.GetComponent<RectTransform>();
         rt.sizeDelta = new Vector2(0, 30);
+
+        // Add LayoutElement to prevent squashing
+        LayoutElement le = tObj.AddComponent<LayoutElement>();
+        le.minHeight = 30;
+        le.preferredHeight = 30;
+
+        // Ensure the Label child stretches to fit
+        Transform labelX = tObj.transform.Find("Label");
+        if (labelX)
+        {
+            RectTransform labelRT = labelX.GetComponent<RectTransform>();
+            labelRT.anchorMin = new Vector2(0, 0);
+            labelRT.anchorMax = new Vector2(1, 1);
+            labelRT.offsetMin = new Vector2(35, 0); // Room for checkmark
+            labelRT.offsetMax = new Vector2(0, 0);
+        }
     }
     
-    void CreateButton(Transform parent, DefaultControls.Resources res, string label, UnityEngine.Events.UnityAction onClick)
+    GameObject CreateButton(Transform parent, DefaultControls.Resources res, string label, UnityEngine.Events.UnityAction onClick)
     {
         GameObject bObj = DefaultControls.CreateButton(res);
         bObj.transform.SetParent(parent, false);
@@ -919,6 +1147,12 @@ public class SandboxUI : MonoBehaviour
         
         RectTransform rt = bObj.GetComponent<RectTransform>();
         rt.sizeDelta = new Vector2(0, 40);
+
+        LayoutElement le = bObj.AddComponent<LayoutElement>();
+        le.minHeight = 40;
+        le.preferredHeight = 40;
+
+        return bObj;
     }
 
     void ToggleUI(bool show)
@@ -929,6 +1163,13 @@ public class SandboxUI : MonoBehaviour
             _canvasGroup.alpha = show ? 1f : 0f;
             _canvasGroup.interactable = show;
             _canvasGroup.blocksRaycasts = show;
+        }
+        
+        // Safety: If UI is being shown, ensure ROI Editor is closed
+        if (show && ROIEditor != null && ROIEditor.IsActive)
+        {
+            ROIEditor.Hide();
+            Debug.Log("SandboxUI: Force-closed ROI Editor to show Main UI.");
         }
     }
 
@@ -1041,6 +1282,33 @@ public class SandboxUI : MonoBehaviour
             _sb.Clear(); _sb.Append("m: ").Append(ViewModel.Settings.MeshSize.ToString("F1"));
             _boundsSizeLabel.text = _sb.ToString();
         }
+
+        if (_meshResLabel) {
+            _sb.Clear(); _sb.Append("x: ").Append(ViewModel.Settings.MeshResolution);
+            _meshResLabel.text = _sb.ToString();
+        }
+
+        // --- MODE BANNER UPDATE ---
+        bool isSim = ViewModel.Controller != null && ViewModel.Controller.IsSimulationEnabled;
+        if (_modeBanner && _modeBannerText)
+        {
+            if (isSim)
+            {
+                _modeBanner.color = new Color(0f, 0.5f, 0.5f, 1f); // Muted Teal
+                _modeBannerText.text = "MODE: SIMULATION (VIRTUAL)";
+                _modeBannerText.color = Color.white;
+            }
+            else
+            {
+                _modeBanner.color = new Color(1f, 0.75f, 0f, 1f); // Deep Amber
+                _modeBannerText.text = "MODE: KIOSK (HARDWARE)";
+                _modeBannerText.color = Color.black; 
+            }
+        }
+
+        // --- SLIDER SYNC ---
+        if (_noiseScaleSlider) _noiseScaleSlider.value = ViewModel.Settings.NoiseScale;
+        if (_moveSpeedSlider) _moveSpeedSlider.value = ViewModel.Settings.MoveSpeed;
     }
     }
 }

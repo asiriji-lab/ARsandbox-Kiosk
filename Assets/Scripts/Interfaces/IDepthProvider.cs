@@ -6,11 +6,16 @@ public interface IDepthProvider
     void Initialize();
     void Shutdown();
 
-    // Data Access
+    // Depth Data Access
     bool IsRunning { get; }
     int Width { get; }
     int Height { get; }
     ushort[] GetDepthData();
+
+    // Color Data Access (for Calibration)
+    int ColorWidth { get; }
+    int ColorHeight { get; }
+    Texture2D GetColorTexture();
 
     // Metadata
     string GetDeviceName();

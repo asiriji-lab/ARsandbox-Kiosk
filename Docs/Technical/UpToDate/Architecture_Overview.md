@@ -8,7 +8,7 @@ This project implements a high-performance **Unity-based Augmented Reality Sandb
 
 ---
 
-## 🛠️ System Architecture
+## 🛠️ System Architecture (GPU-Keep-Alive)
 
 ```mermaid
 graph LR
@@ -23,31 +23,32 @@ graph LR
         B["Simulated Provider"]:::hardware
     end
 
-    subgraph Compute_Layer ["Compute Layer (Multi-Threaded)"]
-        C["ARSandboxController"]:::compute
-        D["1 Euro Filter (Temporal)"]:::compute
-        E["Spatial Blur (Smoothing)"]:::compute
-        F["MeshGen (Coordinate Map)"]:::compute
+    subgraph GPU_Compute_Layer ["Compute Layer (GPU)"]
+        C["TerrainSimulation.compute"]:::compute
+        D["Kernel: FilterDepth"]:::compute
+        E["Kernel: GenerateMesh"]:::compute
     end
 
-    subgraph Presentation_Layer ["Presentation Layer (GPU)"]
-        G["Topography Shader"]:::render
-        H["Procedural Water"]:::render
+    subgraph Presentation_Layer ["Presentation Layer (Render)"]
+        F["Topography Shader"]:::render
+        G["Terrain Mesh (GPU Buffer)"]:::render
     end
 
-    subgraph Persistence ["Persistence & UI"]
-        I["SandboxUI"]:::state
-        J["settings.json"]:::state
+    subgraph Control_Layer ["C# Controller"]
+        H["ARSandboxController"]:::state
+        I["DepthProcessor"]:::state
+        J["TerrainMeshGenerator"]:::state
     end
 
-    A -->|"Raw Depth"| C
-    B -->|"Noise Depth"| C
-    C -->|"Schedule"| D
-    D -->|"Pipeline"| E
-    E -->|"Pipeline"| F
-    F -->|"Update Mesh"| G
-    I -->|"Modify"| C
-    C <-->|"Save/Load"| J
+    A -->|"Raw Depth (ushort[])"| H
+    B -->|"Sim Depth"| H
+    H -->|"Upload Data"| D
+    D -->|"Filtered Depth"| E
+    E -->|"Vertices"| G
+    G -->|"Draw"| F
+    
+    H -.->|"Dispatch"| D
+    H -.->|"Dispatch"| E
 ```
 
 ---

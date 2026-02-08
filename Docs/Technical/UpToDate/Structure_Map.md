@@ -3,7 +3,7 @@
 ## Core Logic
 | Component | File Path | Responsibility |
 |-----------|-----------|----------------|
-| **Controller** | `Assets/ARSandboxController.cs` | The "Brain". Manages the K2 depth sensor, simulation loop, mesh generation (Burst/Jobs), and settings persistence. |
+| **Controller** | `Assets/ARSandboxController.cs` | The "Brain". Manages the K2 depth sensor, simulation loop, and dispatches **Compute Shaders** (`TerrainSimulation.compute`) for filtering and mesh gen. |
 | **UI Manager** | `Assets/SandboxUI.cs` | The "Face". Programmatically builds the UI (No Prefabs). Handles input, tabs, and calls Controller methods. |
 | **Interfaces** | `Assets/Scripts/Interfaces/IDepthProvider.cs` | Contract for depth sources (Sim vs Kinect). |
 

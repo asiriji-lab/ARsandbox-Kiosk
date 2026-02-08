@@ -141,6 +141,14 @@ namespace ARSandbox
         MeshRenderer mr = GetComponent<MeshRenderer>();
         if (mr != null) _meshGenerator.SetMaterial(mr.sharedMaterial);
 
+        // PERSISTENCE LOAD
+        // Ensure we load settings (and trigger validation logic for zero-width boundaries)
+        // This is critical for recovering from corrupted JSON files.
+        if (Application.isPlaying) 
+        {
+            SandboxSettingsManager.Load(Settings);
+        }
+
         _watchdog = new SensorWatchdog(ResetSensor);
     }
 
@@ -196,7 +204,7 @@ namespace ARSandbox
 
         _activeProvider.Initialize();
         _watchdog?.ResetHeartbeat();
-        Debug.Log($"Switched to Provider: {_activeProvider.GetDeviceName()}");
+        Debug.Log($"[ARSandboxController] Switched to Provider: {_activeProvider.GetDeviceName()} (Sim={useSim})");
     }
 
     public void ResetSensor()
@@ -222,46 +230,55 @@ namespace ARSandbox
 
         if (_activeProvider == (IDepthProvider)_simProvider)
         {
-             _simProvider.MinDepthMM = MinDepthMM;
-             _simProvider.MaxDepthMM = MaxDepthMM;
-             _simProvider.NoiseScale = NoiseScale;
+             // Ensure Min < Max and non-zero for visibility
+             float minD = Mathf.Max(MinDepthMM, 100f);
+             float maxD = Mathf.Max(MaxDepthMM, minD + 100f);
+             
+             _simProvider.MinDepthMM = minD;
+             _simProvider.MaxDepthMM = maxD;
+             _simProvider.NoiseScale = NoiseScale > 0.001f ? NoiseScale : 0.1f; // Prevent flatline
              _simProvider.MoveSpeed = MoveSpeed;
         }
 
-        ProcessDepthData();
+        UpdateSimulationData();
         UpdateShader();
+
+        // ALWAYS render the mesh, even if no new depth data arrived this frame
+        if (_meshGenerator != null)
+        {
+            _meshGenerator.DrawMesh(Settings, transform);
+        }
 
         _watchdog?.Update(Settings.WatchdogTimeout, Settings.WatchdogAutoRetry);
     }
 
-    void ProcessDepthData()
+    void UpdateSimulationData()
     {
         if (_activeProvider == null || !_activeProvider.IsRunning) return;
 
         ushort[] depthData = _activeProvider.GetDepthData();
-        if (depthData == null) return;
-
-        _watchdog?.ResetHeartbeat();
-
-        int depthW = _activeProvider.Width;
-        int depthH = _activeProvider.Height;
-
-        // Delegate to DepthProcessor (Compute Shader)
-        _depthProcessor.Process(depthData, depthW, depthH, Settings, EnableSimulation);
-        
-        // Lazy Init Debug Texture
-        if (_rawDepthTexture == null || _rawDepthTexture.width != depthW)
+        if (depthData != null)
         {
-            _rawDepthTexture = new Texture2D(depthW, depthH, TextureFormat.R8, false);
-            _rawColorBuffer = new byte[depthW * depthH];
-        }
+            _watchdog?.ResetHeartbeat();
 
-        // Delegate to MeshGenerator (Compute Shader)
-        // Pass the ComputeBuffer directly!
-        _meshGenerator.UpdateMesh(_depthProcessor.GetOutputBuffer(), depthW, depthH, Settings, transform);
-        
-        // Update Debug Texture (Optional: Disable this for max perf)
-        UpdateDebugTexture(_depthProcessor.GetResultBuffer());
+            int depthW = _activeProvider.Width;
+            int depthH = _activeProvider.Height;
+
+            // Delegate to DepthProcessor (Compute Shader)
+            _depthProcessor.Process(depthData, depthW, depthH, Settings, EnableSimulation);
+            
+            // Lazy Init Debug Texture
+            if (_rawDepthTexture == null || _rawDepthTexture.width != depthW)
+            {
+                _rawDepthTexture = new Texture2D(depthW, depthH, TextureFormat.RGBA32, false);
+            }
+
+            // Delegate to MeshGenerator (Compute Shader) to update geometry
+            _meshGenerator.UpdateMesh(_depthProcessor.GetOutputBuffer(), depthW, depthH, Settings, transform, EnableSimulation);
+            
+            // Update Debug Texture (Optional: Disable this for max perf)
+            UpdateDebugTexture(_depthProcessor.GetResultBuffer());
+        }
     }
 
     // Deprecated: UpdateMeshGeometry removed.
@@ -270,11 +287,29 @@ namespace ARSandbox
 
     void UpdateDebugTexture(ushort[] depthData)
     {
+        // Allocating this array every frame is bad for GC, usually we keep a buffer.
+        // For now, let's just SetPixels32 for performance.
+       
+        Color32[] pixels = new Color32[depthData.Length];
+        
         for(int i=0; i<depthData.Length; i++)
         {
-            _rawColorBuffer[i] = (byte)(depthData[i] / 10); 
+            // Normalize for display: 500mm (black) to 2000mm (white)
+            // Or simple modulo visualization
+            int val = depthData[i];
+            
+            // Mask out 0 (Invalid)
+            if (val == 0) {
+                pixels[i] = new Color32(0, 0, 0, 255); // Black
+                continue;
+            }
+            
+            // Simple visual range 500mm-1500mm
+            byte v = (byte)Mathf.Clamp((val - 500) * 255 / 1000, 0, 255);
+            pixels[i] = new Color32(v, v, v, 255);
         }
-        _rawDepthTexture.LoadRawTextureData(_rawColorBuffer);
+        
+        _rawDepthTexture.SetPixels32(pixels);
         _rawDepthTexture.Apply();
     }
 
@@ -283,6 +318,12 @@ namespace ARSandbox
     /// </summary>
     /// <returns>The generated R8 depth texture.</returns>
     public Texture GetRawDepthTexture() => _rawDepthTexture;
+    
+    /// <summary>
+    /// Returns the RGB color texture from the active provider (for calibration).
+    /// Returns null in Simulation mode.
+    /// </summary>
+    public Texture2D GetColorTexture() => _activeProvider?.GetColorTexture();
 
     // --- Legacy / Shared Systems (Walls, Colors, etc) ---
 
@@ -310,13 +351,30 @@ namespace ARSandbox
     }
 
     public void UpdateMeshDimensions(float size) {
-        // Handled by Settings and MeshGenerator Update loop now, 
-        // but if external scripts call this, we update the setting.
         Settings.MeshSize = size;
     }
 
+    public void UpdateMeshResolution(int res)
+    {
+        if (res < 50 || res > 512) return; // Slider limit
+        if (_meshGenerator != null && _meshGenerator.Width == res) return;
+        
+        Settings.MeshResolution = res;
+        
+        // Re-initialize mesh components
+        _meshGenerator?.Dispose();
+        _meshGenerator = new TerrainMeshGenerator(TerrainSimulationShader, res, res);
+        _meshGenerator.Initialize(gameObject, res, Settings.MeshSize, TerrainSimulationShader);
+        
+        MeshRenderer mr = GetComponent<MeshRenderer>();
+        if (mr != null) _meshGenerator.SetMaterial(mr.sharedMaterial);
+        
+        UpdateMaterialProperties();
+        Debug.Log($"[ARSandboxController] Mesh Resolution updated to {res}x{res}");
+    }
+
     public void SaveSettings() {
-        // TODO: Implement JSON persistence for SO or rely on Editor serialization
+        SandboxSettingsManager.Save(Settings);
     }
     public void LoadSettings() {
         // TODO: Load from JSON if needed

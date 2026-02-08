@@ -48,7 +48,7 @@ float _MeshSize; // Width/Length in Unity units
 float _MinDepthMM;
 float _MaxDepthMM;
 float _HeightScale;
-bool _FlatMode;
+int _FlatMode;
 
 // Calibration Params
 float2 _pBL;
@@ -82,9 +82,12 @@ void FilterDepth(uint3 id : SV_DispatchThreadID)
     float prevRaw = _FilterState[stateIdx + 1];
 
     // Invalid Data Handling (Hole Filling / Shadow)
+    // Invalid Data Handling (Hole Filling / Shadow)
     if (raw <= 0) {
-        // Keep last known good value
-        _FilteredDepthOutput[i] = (uint)prevFiltered;
+        // Don't freeze! Return 0 so it's treated as a hole/floor, preventing "smearing" artifacts.
+        // Or we could decay it? For now, 0 allows the mesh generator to handle it (e.g., clamp to floor).
+        _FilteredDepthOutput[i] = 0;
+        _FilterState[stateIdx] = 0; // Reset history
         return;
     }
 
@@ -183,12 +186,14 @@ void GenerateMesh(uint3 id : SV_DispatchThreadID)
          float range = abs(_MaxDepthMM - _MinDepthMM);
          if (range > 0.001f) {
              float normalized = (_MaxDepthMM - depthVal) / range;
-             calculatedHeight = saturate(normalized) * _HeightScale;
+             // Clamp to prevent "curtain" effect at sensor edges where depth approaches 0
+             // We allow some overshoot (up to 1.5x) for pointy peaks, but not infinity.
+             calculatedHeight = clamp(normalized, -0.2f, 1.5f) * _HeightScale;
          }
     }
 
     // FlatMode: Use calculated height for coloring, but flatten geometry
-    float vertexY = _FlatMode ? 0.0f : calculatedHeight;
+    float vertexY = (_FlatMode > 0) ? 0.0f : calculatedHeight;
 
     // Output Vertex
     TerrainVertex vert;

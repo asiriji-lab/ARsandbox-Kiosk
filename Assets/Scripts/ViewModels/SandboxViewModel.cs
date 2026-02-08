@@ -7,7 +7,18 @@ public class SandboxViewModel : MonoBehaviour
     public SandboxSettingsSO Settings;
     
     // Command Interface (Actions)
-    public IUISystem Controller;
+    // Command Interface (Actions)
+    private IUISystem _controller;
+    public IUISystem Controller
+    {
+        get
+        {
+            if (_controller == null)
+                _controller = GetComponent<IUISystem>() ?? FindFirstObjectByType<ARSandboxController>();
+            return _controller;
+        }
+        set => _controller = value;
+    }
 
     // Reactive Properties (UI State)
     public ReactiveProperty<float> HeightScale = new ReactiveProperty<float>();
@@ -38,7 +49,7 @@ public class SandboxViewModel : MonoBehaviour
     private void Awake()
     {
         // Try to find dependencies if not assigned
-        if (Controller == null) Controller = GetComponent<IUISystem>() ?? FindFirstObjectByType<ARSandboxController>();
+        // Controller is now lazy-loaded via property
         if (Settings == null && Controller != null) Settings = Controller.CurrentSettings;
         
         if (Settings != null)
@@ -107,6 +118,7 @@ public class SandboxViewModel : MonoBehaviour
     
     // World & Sim Settings
     public void SetMeshSize(float v) { Settings.MeshSize = v; Controller.UpdateMeshDimensions(v); Save(); }
+    public void SetMeshResolution(float v) { Settings.MeshResolution = (int)v; Controller.UpdateMeshResolution((int)v); Save(); }
     public void SetShowWalls(bool v) { Settings.ShowWalls = v; UpdateVisuals(); Save(); }
     public void SetFlatMode(bool v) { Settings.FlatMode = v; Save(); } // Controller reads Settings directly in Update/Shader
     public void SetEnableSimulation(bool v) { Controller.SetMode(v); }

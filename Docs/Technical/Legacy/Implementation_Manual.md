@@ -1,5 +1,10 @@
 # AR Sandbox Technical Implementation Manual
 
+> [!WARNING]
+> **LEGACY ARCHITECTURE NOTICE**
+> This document describes an older CPU-based "Job System" architecture. The current codebase uses **Compute Shaders** (`TerrainSimulation.compute`) for depth processing and mesh generation.
+> **DO NOT USE THIS GUIDE** for understanding the core pipeline. Refer to `Codebase_Structure_Report.md` for the current truth.
+
 This document provides in-depth technical specifications and architectural mandates for the AR Sandbox project. For coding style and naming rules, refer to [Coding_Standard.md](../Standards/Coding_Standard.md).
 
 ---

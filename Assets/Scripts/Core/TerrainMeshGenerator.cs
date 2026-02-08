@@ -19,6 +19,8 @@ public class TerrainMeshGenerator : System.IDisposable
     private ComputeShader _shader;
     private int _kernelIndex;
     private int _width, _height;
+    public int Width => _width;
+    public int Height => _height;
 
     // Procedural Rendering State
     private RenderParams _renderParams;
@@ -60,10 +62,8 @@ public class TerrainMeshGenerator : System.IDisposable
         }
     }
 
-    public void UpdateMesh(ComputeBuffer filteredDepthBuffer, int depthW, int depthH, SandboxSettingsSO settings, Transform rootTransform)
+    public void UpdateMesh(ComputeBuffer filteredDepthBuffer, int depthW, int depthH, SandboxSettingsSO settings, Transform rootTransform, bool isSimulation)
     {
-        // EnsureMeshInitialized(settings.MeshResolution, settings.MeshSize); // No longer needed with constructor init
-
         // 1. Dispatch Compute Shader to generate vertices
         _shader.SetBuffer(_kernelIndex, "_FilteredDepthOutput", filteredDepthBuffer);
         _shader.SetBuffer(_kernelIndex, "_VertexBuffer", _vertexBuffer);
@@ -73,53 +73,61 @@ public class TerrainMeshGenerator : System.IDisposable
         _shader.SetFloat("_MinDepthMM", settings.MinDepth);
         _shader.SetFloat("_MaxDepthMM", settings.MaxDepth);
         _shader.SetFloat("_HeightScale", settings.HeightScale);
-        _shader.SetBool("_FlatMode", settings.FlatMode);
+        _shader.SetInt("_FlatMode", settings.FlatMode ? 1 : 0);
         
-        // Debug FlatMode
-        if (settings.FlatMode && Time.frameCount % 120 == 0) // Log every 2 seconds at 60fps
+        // Fix: Explicitly set Width/Height for MeshGen kernel (it might be shared or independent)
+        _shader.SetInt("_Width", depthW);
+        _shader.SetInt("_Height", depthH);
+
+        // DEBUG: Log key parameters every 300 frames (approx 5s) to diagnose "Flat Blue" issues
+        if (Time.frameCount % 300 == 0)
         {
-            Debug.Log($"[TerrainMeshGenerator] FlatMode is ENABLED - terrain should be flat at Y=0");
+            Debug.Log($"[MeshGen] Height:{settings.HeightScale:F2}, Flat:{settings.FlatMode}, Min:{settings.MinDepth:F0}, Max:{settings.MaxDepth:F0}, Res:{settings.MeshResolution}");
+        }
+
+        // Calibration: Bypass if in simulation mode
+        if (isSimulation)
+        {
+            _shader.SetVector("_pBL", new Vector2(0, 0));
+            _shader.SetVector("_pTL", new Vector2(0, 1));
+            _shader.SetVector("_pTR", new Vector2(1, 1));
+            _shader.SetVector("_pBR", new Vector2(1, 0));
+        }
+        else
+        {
+            _shader.SetVector("_pBL", settings.CalibrationPoints[0]);
+            _shader.SetVector("_pTL", settings.CalibrationPoints[1]);
+            _shader.SetVector("_pTR", settings.CalibrationPoints[2]);
+            _shader.SetVector("_pBR", settings.CalibrationPoints[3]);
         }
         
-        // Calibration
-        _shader.SetVector("_pBL", settings.CalibrationPoints[0]);
-        _shader.SetVector("_pTL", settings.CalibrationPoints[1]);
-        _shader.SetVector("_pTR", settings.CalibrationPoints[2]);
-        _shader.SetVector("_pBR", settings.CalibrationPoints[3]);
-        
-        // ROI Boundary
-        if (settings.BoundaryPoints != null && settings.BoundaryPoints.Length == 4)
+        // ROI Boundary: Also bypass in simulation for a full-screen view
+        Vector4[] boundaryV4 = new Vector4[4];
+        if (isSimulation || settings.BoundaryPoints == null || settings.BoundaryPoints.Length != 4)
         {
-            // Convert Vector2[] to Vector4[] for Shader (Unity requires Vector4[] for SetVectorArray)
-            Vector4[] boundaryV4 = new Vector4[4];
+             boundaryV4[0] = new Vector2(0, 0);
+             boundaryV4[1] = new Vector2(0, 1);
+             boundaryV4[2] = new Vector2(1, 1);
+             boundaryV4[3] = new Vector2(1, 0);
+        }
+        else
+        {
             boundaryV4[0] = settings.BoundaryPoints[0];
             boundaryV4[1] = settings.BoundaryPoints[1];
             boundaryV4[2] = settings.BoundaryPoints[2];
             boundaryV4[3] = settings.BoundaryPoints[3];
-            _shader.SetVectorArray("_BoundaryPoints", boundaryV4);
         }
-        
+
+        // Pass to Rendering Material (for Fragment Masking)
+        if (_material != null) _material.SetVectorArray("_BoundaryPoints", boundaryV4);
+        if (_wallMaterial != null) _wallMaterial.SetVectorArray("_BoundaryPoints", boundaryV4);
+
         int totalVerts = settings.MeshResolution * settings.MeshResolution;
         int groups = Mathf.CeilToInt(totalVerts / 64.0f);
         _shader.Dispatch(_kernelIndex, groups, 1, 1);
 
-        // 2. ZERO-COPY RENDERING (Rule 2.D)
-        if (_material != null)
-        {
-            _material.SetBuffer("_VertexBuffer", _vertexBuffer);
-            _renderParams.worldBounds = new Bounds(rootTransform.position, new Vector3(settings.MeshSize, settings.HeightScale, settings.MeshSize));
-            _renderParams.material = _material; // Ensure correct instance
-            // Note: MaterialPropertyBlock for terrain is handled via 'RegisterMaterialProperties' updating a cached block if we wanted,
-            // but for RenderPrimitives we usually pass it in RenderParams.
-            // For now, let's assume the Global properties or Material properties are enough.
-            // If we need dynamic props (like offsets), we should add a 'SetTerrainProps' method.
-            
-            Graphics.RenderPrimitivesIndexed(_renderParams, MeshTopology.Triangles, _indexBuffer, _indexBuffer.count, 0);
-        }
-
-        // 3. Walls - STILL NEED READBACK if we want CPU walls (secondary pass)
-        // This is a small transfer and only happens if walls are enabled.
-        if (settings.ShowWalls)
+        // 3. Walls - Safety: Disable walls if FlatMode is ON, as they are redundant.
+        if (settings.ShowWalls && !settings.FlatMode)
         {
             float[] vertexData = new float[totalVerts * 10];
             _vertexBuffer.GetData(vertexData);
@@ -129,6 +137,24 @@ public class TerrainMeshGenerator : System.IDisposable
         {
             _wallObj.SetActive(false);
         }
+    }
+
+    /// <summary>
+    /// Performs the actual draw call. Should be called every frame in Update().
+    /// </summary>
+    public void DrawMesh(SandboxSettingsSO settings, Transform rootTransform)
+    {
+        if (_material == null || _vertexBuffer == null || _indexBuffer == null) return;
+
+        // Ensure material has the latest vertex buffer
+        _material.SetBuffer("_VertexBuffer", _vertexBuffer);
+        
+        // Update bounds for culling
+        _renderParams.worldBounds = new Bounds(rootTransform.position, new Vector3(settings.MeshSize, settings.HeightScale, settings.MeshSize));
+        _renderParams.material = _material;
+        
+        // Final Procedural Draw Call
+        Graphics.RenderPrimitivesIndexed(_renderParams, MeshTopology.Triangles, _indexBuffer, _indexBuffer.count, 0);
     }
 
     void UpdateWalls(float[] vertexData, int resolution, float meshSize, Transform parent)
