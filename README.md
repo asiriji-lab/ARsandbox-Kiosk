@@ -1,103 +1,66 @@
-# AR Sandbox Kiosk (Operational Refactor)
+# AR Sandbox Kiosk
 
-A high-performance, studio-grade Augmented Reality (AR) Sandbox built in Unity. This project features advanced de-noising, real-time bicubic topography generation, and an exhibit-centric user interface designed for public installations.
-
----
-
-## � Project Navigation
-To maintain a clean Unity workspace, all project documentation has been moved to the root `/Docs` directory.
-
-- **[Coding Standards](./Docs/Standards/Coding_Standard.md)**: Naming conventions and performance rules.
-- **[Implementation Manual](./Docs/Technical/Implementation_Manual.md)**: Deep dive into the architecture and de-noising math.
-- **[Deployment Guide](./Docs/Guides/Deployment_Guide.md)**: Instructions for setting up the kiosk hardware.
-- **[Bug Fix Log](./Docs/History/Bug_Fix_Log.md)**: Historical record of optimizations and stabilization.
+A high-performance Augmented Reality Sandbox built in Unity. Real-time topography from a depth sensor, projected onto physical sand.
 
 ---
 
-## 🚀 Key High-End Features
+## Quick Start
 
-### 🖥️ GPGPU Simulation (Zero-Copy)
-- **Zero-Latency**: Entire simulation pipeline moved to **Compute Shaders**.
-- **Performance**: Stable 60FPS at 1024x1024 grid size. No CPU overhead for mesh generation.
-- **Rendering**: Uses `Graphics.RenderPrimitives` for direct GPU-to-GPU drawing.
+### Prerequisites
+| Requirement | Version |
+|---|---|
+| Unity | **2022.3 LTS** |
+| Depth Sensor | Azure Kinect DK, Orbbec Femto Bolt, or **None** (Simulation mode) |
+| Sensor SDK | [Azure Kinect SDK 1.4.1](https://learn.microsoft.com/en-us/azure/kinect-dk/sensor-sdk-download) or Orbbec K4A Wrapper |
+| OS | Windows 10/11 |
 
-### 📐 Real-World Alignment
-- **DLT Calibration**: Scientifically accurate Projector-Camera mapping using **Direct Linear Transform**.
-- **ROI Masking**: Define the active sandbox area by clicking 4 corners. Everything outside is automatically cropped.
-- **Persistence**: All settings (Calibration, Boundary, Visuals) are auto-saved to JSON.
+### First Run
+1. Clone this repo and open in Unity.
+2. Press **Play** — the app auto-detects your sensor (or falls back to simulation).
+3. Press **Tab** to open the Admin panel.
+4. Go to **Setup → Edit Boundary (ROI)** and click the 4 corners of your sandbox.
+5. Go to **Setup → Auto-Calibrate Floor** to zero the height.
 
-### 🛡️ 1€ Adaptive Filter (De-noising)
-- Core compute logic offloaded to **Unity Burst & Job System** for near-zero latency.
-- Dynamic adaptation: Rock-steady stability when still (**Anti-Shake**) and high-speed responsiveness when moving (**Follow Speed**).
-
-### ️ Precision Topography
-- **16-Tap Bicubic Filtering**: Custom sampling kernel eliminates "stair-stepping" artifacts.
-- **Absolute Color Mapping**: Professional elevation palettes (UC Davis, Desert, Topographic).
-- **Pixel-Perfect Contours**: Screen-space stable lines.
-
-### ✋ Exhibit-Grade UX
-- **Hand Rejection**: Intelligent height-velocity filtering protects the topography.
-- **Auto-Hide Admin UI**: Fades during inactivity.
-- **Atmospheric Presets**: Instant environment shifts.
-
----
-
-## 🛠️ Technical Overview
-- **Hardware**: Compatible with Azure Kinect, Kinect v2, and Simulated data.
-- **Architecture**: Decoupled MVVM Pattern (`SandboxUI` <-> `ViewModel` <-> `Orchestrator`).
-- **Persistence**: `SandboxSettingsManager` handles robust JSON serialization.
-- **Standards**: 100% compliant with the `PascalCase` (Public) and `_camelCase` (Private) naming standards.
+### Controls
+| Key | Action |
+|---|---|
+| `Tab` / `` ` `` | Toggle Admin UI |
+| `←` `→` | Cycle camera view (Top / Perspective / Side) |
+| `↑` `↓` | Zoom In / Out |
+| `R` | Reload Scene |
+| `Esc` | Exit |
 
 ---
 
-## 🏗️ System Architecture
+## Features
 
-This project uses a **Zero-Copy GPGPU Pipeline** to maximize performance. Data stays on the GPU as much as possible.
-
-```mermaid
-graph TD
-    Sensor["Azure Kinect DK / File"] -->|"Raw Depth Buffer"| CS_Filter["Compute Shader: 1-Euro Filter"]
-    CS_Filter -->|"Filtered Depth"| CS_Sim["Compute Shader: Terrain Simulation"]
-    
-    subgraph "GPU Memory"
-        CS_Filter
-        CS_Sim
-        CS_Gen["Compute Shader: Mesh Generation"]
-        VB["Vertex Buffer"]
-    end
-    
-    CS_Sim -->|"Erosion/Flow Data"| CS_Gen
-    CS_Gen -->|"Write Vertices"| VB
-    
-    VB -->|"Zero-Copy Draw"| Renderer["Graphics.RenderPrimitives"]
-    
-    UI["SandboxUI / ViewModel"] -->|"Settings Parameter"| CS_Sim
-    Calibration["DLT Solver"] -->|"Matrix4x4"| CS_Gen
-```
-
-### **Pipeline Flow**
-1.  **Input**: Depth frames are uploaded to a `ComputeBuffer` (Data).
-2.  **Process**: The `TerrainSimulation.compute` shader applies de-noising and masking logic.
-3.  **Generate**: The shader generates the grid vertices directly into a `GraphicsBuffer`.
-4.  **Render**: Unity's `Graphics.RenderPrimitives` draws this buffer without ever reading it back to the CPU.
+- **Zero-Copy GPU Pipeline** — Depth filtering, mesh generation, and rendering all on GPU. Stable 60 FPS.
+- **Keystone Calibration** — Align projector and sensor with 4-corner handle dragging.
+- **ROI Masking** — Define the active sandbox area. Everything outside is cropped.
+- **Adaptive De-noising** — 1-Euro filter: steady when still, responsive when moving.
+- **Bicubic Terrain** — 16-tap sampling eliminates stair-stepping.
+- **Elevation Palettes** — UC Davis, Desert, Natural, Heat, Topographic, Grayscale.
+- **Water & Caustics** — Configurable water level with animated caustic overlay.
+- **Contour Lines** — Screen-space stable, adjustable interval and thickness.
+- **Auto-Hide UI** — Admin panel fades during inactivity for exhibit use.
+- **Settings Persistence** — All calibration and visual settings saved to JSON.
 
 ---
 
-## 🕹️ Controls & Setup
+## Documentation
 
-### **Getting Started**
-1. Ensure your Kinect sensor is connected.
-2. Run `UpdateAndRun.bat` or open the project in Unity.
-3. Open the **ADMIN** panel (`Tab`).
-4. **Define Boundary**: Go to **SETUP** -> **Edit Boundary (ROI)** and click the 4 corners of your sandbox.
-5. **Calibrate Floor**: Go to **SETUP** -> **Auto-Calibrate Floor** to zero the height.
-
-### **Key Bindings**
-- **Toggle UI**: `Tab` or `` ` `` (Tilde)
-- **Cycle Monitor View**: `Left/Right Arrows` (Top, Perspective, Side)
-- **Camera Zoom**: `Up/Down Arrows`
-- **Reload Scene**: `R`
-- **Exit application**: `Esc`
+| Document | Description |
+|---|---|
+| [System Architecture](./Docs/Technical/System_Architecture.md) | GPU pipeline, module responsibilities, keystone math |
+| [Setup Guide](./Docs/Guides/Setup_Guide.md) | Detailed hardware setup |
+| [Deployment Guide](./Docs/Guides/Deployment_Guide.md) | Kiosk installation instructions |
+| [Calibration Workflow](./Docs/Guides/Calibration_UX_Workflow.md) | Step-by-step calibration process |
+| [Coding Standards](./Docs/Standards/Coding_Standard.md) | Naming conventions and performance rules |
+| [Hardware Troubleshooting](./Docs/Technical/Hardware_Troubleshooting_Guide.md) | Common sensor issues and fixes |
+| [Contributing](./CONTRIBUTING.md) | How to contribute |
 
 ---
-**Maintained by**: Ralph Workspace Workflow 🚀
+
+## License
+
+This project is licensed under the [MIT License](./LICENSE).
