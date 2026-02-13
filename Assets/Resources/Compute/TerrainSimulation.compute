@@ -200,7 +200,10 @@ void GenerateMesh(uint3 id : SV_DispatchThreadID)
     vert.pos = float3(xPos, vertexY, zPos);
     vert.normal = float3(0, 1, 0); // Up vector
     vert.uv = float2(u, v);
-    vert.uv2 = float2(calculatedHeight, 0); // ALWAYS store calculated height for shader coloring
+    // UV2.x = Physical elevation in METERS (for shader gradient/water coloring)
+    // Must match CPU path: elevation = (MaxDepthMM - depthVal) * 0.001
+    float elevationMeters = (depthVal > 0) ? (_MaxDepthMM - depthVal) * 0.001f * _HeightScale : 0;
+    vert.uv2 = float2(elevationMeters, 0);
 
     _VertexBuffer[i] = vert;
 }

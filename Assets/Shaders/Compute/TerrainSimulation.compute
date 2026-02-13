@@ -171,6 +171,7 @@ void GenerateMesh(uint3 id : SV_DispatchThreadID)
 
     // Height Calculation - ALWAYS calculate for UV2 coloring
     float calculatedHeight = 0;
+    float depthVal = 0; // Hoisted to function scope for UV2 calculation
     
     // 1. ROI MASK CHECK
     // The vertex UV is (u,v). We check if this UV is inside the labeled 4 points.
@@ -181,8 +182,6 @@ void GenerateMesh(uint3 id : SV_DispatchThreadID)
     {
         // OUTSIDE: Force Flat Floor
         calculatedHeight = 0; 
-        // We can optimize by skipping the texture sampling below?
-        // Let's just set depthVal = 0 effectively.
     }
     else
     {
@@ -227,7 +226,7 @@ void GenerateMesh(uint3 id : SV_DispatchThreadID)
             }
         }
     
-        float depthVal = totalWeight > 0.001f ? (sampleSum / totalWeight) : 0;
+        depthVal = totalWeight > 0.001f ? (sampleSum / totalWeight) : 0;
     
         // Convert MM to Unity Height
         if (depthVal > 0)
@@ -248,7 +247,10 @@ void GenerateMesh(uint3 id : SV_DispatchThreadID)
     vert.pos = float3(xPos, vertexY, zPos);
     vert.normal = float3(0, 1, 0); // Up vector
     vert.uv = float2(u, v);
-    vert.uv2 = float2(calculatedHeight, 0); // ALWAYS store calculated height for shader coloring
+    // UV2.x = Physical elevation in METERS (for shader gradient/water coloring)
+    // Must match CPU path: elevation = (MaxDepthMM - depthVal) * 0.001
+    float elevationMeters = (depthVal > 0) ? (_MaxDepthMM - depthVal) * 0.001f * _HeightScale : 0;
+    vert.uv2 = float2(elevationMeters, 0);
 
     _VertexBuffer[i] = vert;
 }
