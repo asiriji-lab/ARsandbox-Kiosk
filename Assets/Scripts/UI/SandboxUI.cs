@@ -11,6 +11,8 @@ using UnityEngine.Serialization;
 namespace ARSandbox.UI
 {
     using ARSandbox.Core;
+    using ARSandbox.Systems; 
+
 public class SandboxUI : MonoBehaviour
 {
     [Header("MVVM")]
@@ -18,6 +20,8 @@ public class SandboxUI : MonoBehaviour
     
     [Header("Sub-Systems")]
     public ROIEditorView ROIEditor;
+    private CalibrationSystem _calibrationSystem;
+    private CameraSystem _cameraSystem;
 
     [Header("UI Resources")]
     [FormerlySerializedAs("knobSprite")]
@@ -36,10 +40,8 @@ public class SandboxUI : MonoBehaviour
     private int _activeTabIndex = 0;
 
     // Calibration UI
-    private bool _isCalibrating = false;
     private RawImage _calibrationOverlay;
     private RectTransform[] _handles; // 0=BL, 1=TL, 2=TR, 3=BR
-    private int _draggingHandleIndex = -1;
     private Text[] _handleLabels;
 
     // Sliders
@@ -110,55 +112,17 @@ public class SandboxUI : MonoBehaviour
     private bool _isFaded = false;
     private float _secretGestureTimer = 0f; // [NEW] For Kiosk Admin Access
 
-    // Camera Views
-    // CamView moved to ARSandbox.Core
-    private CamView _currentView = CamView.Top;
-    private float _cameraZoomOffset = 0f; // Persists zoom across view changes
-
+    // Camera Views delegated to CameraSystem
     void CycleCameraView() => CycleCameraView(1); // Default forward
 
     void CycleCameraView(int direction)
     {
-        _currentView = CameraStateLogic.GetNextView(_currentView, direction);
-        UpdateCameraTransform();
+        if (_cameraSystem) _cameraSystem.CycleView(direction);
     }
 
     void UpdateCameraTransform()
     {
-        Camera cam = Camera.main;
-        if (cam == null) return;
-
-        // MVVM Access
-        float size = 10f;
-        if (ViewModel != null && ViewModel.Settings != null) size = ViewModel.Settings.MeshSize;
-
-        // Ensure size is at least 10 to avoid clipping
-        if (size < 10) size = 10;
-
-        // Apply zoom offset (positive = zoomed in = closer)
-        float effectiveSize = size - _cameraZoomOffset;
-        effectiveSize = Mathf.Max(effectiveSize, 2f); // Prevent getting too close
-
-        switch (_currentView)
-        {
-            case CamView.Top:
-                // Standard: Look Down
-                cam.transform.position = new Vector3(0, effectiveSize, 0);
-                // FLIPPED: (90, 0, 180) rotates the view 180 degrees for inverted projectors
-                cam.transform.rotation = Quaternion.Euler(90, 0, 180);
-                break;
-            case CamView.Perspective:
-                // 45 Degree
-                cam.transform.position = new Vector3(0, effectiveSize * 0.8f, -effectiveSize * 0.8f);
-                cam.transform.LookAt(Vector3.zero);
-                break;
-            case CamView.Side:
-                // Side View (Amplitude Check)
-                cam.transform.position = new Vector3(0, effectiveSize * 0.2f, -effectiveSize);
-                cam.transform.LookAt(Vector3.zero);
-                break;
-        }
-        Debug.Log($"Switched View to: {_currentView} (Zoom Offset: {_cameraZoomOffset:F1})");
+         if (_cameraSystem) _cameraSystem.UpdateTransform(ViewModel.Settings.MeshSize);
     }
 
     void Start()
@@ -196,9 +160,16 @@ public class SandboxUI : MonoBehaviour
             Debug.LogError($"SandboxUI: Error building UI: {e.Message}\n{e.StackTrace}");
         }
 
+        // Initialize Systems logic
+        _calibrationSystem = gameObject.AddComponent<CalibrationSystem>();
+        _calibrationSystem.Initialize(ViewModel, _handles, _calibrationOverlay);
+
+        _cameraSystem = gameObject.AddComponent<CameraSystem>();
+        _cameraSystem.Initialize(Camera.main);
+
         ToggleUI(true); // Default to visible so user knows it's working
         ToggleCalibration(false);
-        UpdateCameraTransform(); // Snap Camera to Top View on Launch
+        UpdateCameraTransform(); // Snap Camera
         Debug.Log("SandboxUI: Initialization complete. UI Visible.");
     }
 
@@ -213,7 +184,7 @@ public class SandboxUI : MonoBehaviour
             UpdateLabels();
         }
 
-        if (_isCalibrating)
+        if (_calibrationSystem != null && _calibrationSystem.IsCalibrating)
         {
             UpdateCalibrationLogic();
         }
@@ -398,106 +369,24 @@ public class SandboxUI : MonoBehaviour
 
     void AdjustCameraZoom(float delta)
     {
-        // Update persistent zoom offset
-        // Positive delta (Up Arrow) = zoom in = increase offset (decreases effectiveSize)
-        _cameraZoomOffset += delta;
-        
-        // Clamp to reasonable range
-        _cameraZoomOffset = Mathf.Clamp(_cameraZoomOffset, -20f, 15f);
-        
-        // Apply the new zoom to current view
-        UpdateCameraTransform();
+        if (_cameraSystem) _cameraSystem.AdjustZoom(delta);
     }
 
     void UpdateCalibrationLogic()
     {
-        // Continuously refresh texture for live feed
-        if (ViewModel.Controller != null)
-        {
-            // Prefer Color if available (Kiosk Mode)
-            Texture targetTex = ViewModel.Controller.GetColorTexture();
-            if (targetTex == null) targetTex = ViewModel.Controller.GetRawDepthTexture();
+        if (_calibrationSystem == null) return;
 
-            if (_calibrationOverlay != null)
-            {
-                if (_calibrationOverlay.texture != targetTex)
-                {
-                    _calibrationOverlay.texture = targetTex;
-                    // FLIP: UV (0,1, 1, -1) handles the vertical flip often seen with Kinect textures
-                    _calibrationOverlay.uvRect = new Rect(0, 1, 1, -1);
-                }
-            }
-        }
-
-        // Handle Dragging
+        bool wasPressedThisFrame = Mouse.current.leftButton.wasPressedThisFrame;
+        bool isPressed = Mouse.current.leftButton.isPressed;
+        bool wasReleased = Mouse.current.leftButton.wasReleasedThisFrame;
         Vector2 mousePos = Mouse.current.position.ReadValue();
-        
-        if (Mouse.current.leftButton.wasPressedThisFrame)
-        {
-            // Check for hits
-            float closestDist = 50f; // Pixel threshold
-            _draggingHandleIndex = -1;
 
-            for(int i=0; i<4; i++)
-            {
-                if (_handles[i] != null)
-                {
-                    float d = Vector2.Distance(mousePos, _handles[i].position);
-                    if (d < closestDist)
-                    {
-                        closestDist = d;
-                        _draggingHandleIndex = i;
-                    }
-                }
-            }
-        }
-
-        if (_draggingHandleIndex != -1 && Mouse.current.leftButton.isPressed)
-        {
-            // Update Point
-            // Screen (Pix) -> Normalized (0..1)
-            float normX = Mathf.Clamp01(mousePos.x / Screen.width);
-            float normY = Mathf.Clamp01(mousePos.y / Screen.height);
-            
-            // INVERT Y: Match the flipped camera feed AND flipped projector
-            // Top of screen is now Bottom of projection
-            normY = 1.0f - normY; 
-
-            // Update Controller
-            ViewModel.Settings.CalibrationPoints[_draggingHandleIndex] = new Vector2(normX, normY);
-            
-            // Update Visual
-            _handles[_draggingHandleIndex].position = mousePos;
-        }
-
-        if (Mouse.current.leftButton.wasReleasedThisFrame)
-        {
-            if (_draggingHandleIndex != -1)
-            {
-                _draggingHandleIndex = -1;
-                ViewModel.SaveSettings(); // Save on release
-            }
-        }
+        _calibrationSystem.ProcessInput(mousePos, wasPressedThisFrame, isPressed, wasReleased);
     }
 
     void ToggleCalibration(bool state)
     {
-        _isCalibrating = state;
-        if (_calibrationOverlay != null)
-        {
-            _calibrationOverlay.gameObject.SetActive(state);
-            // Refresh handle positions from controller
-            if (state)
-            {
-                for(int i=0; i<4; i++)
-                {
-                    Vector2 norm = ViewModel.Settings.CalibrationPoints[i];
-                    // INVERT Y: Restore visual position from inverted logic
-                    float visualY = (1.0f - norm.y) * Screen.height;
-                    _handles[i].position = new Vector2(norm.x * Screen.width, visualY);
-                }
-            }
-        }
+        if (_calibrationSystem) _calibrationSystem.SetCalibrationMode(state);
     }
 
     void BuildCalibrationForlay()

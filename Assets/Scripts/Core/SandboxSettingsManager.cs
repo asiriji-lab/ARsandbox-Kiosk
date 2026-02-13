@@ -21,10 +21,14 @@ namespace ARSandbox.Core
             // Projection
             public float HeightScale;
             public float MeshSize;
+            public int MeshResolution;
+            public float MinHeight;
+            public float ColorHeightMax;
             public SerializableMatrix4x4 ProjectionMatrix;
+            public Vector2[] CalibrationPoints;
             public Vector2[] BoundaryPoints;
 
-            public bool FlatMode; // Added for persistence
+            public bool FlatMode;
 
             // Visuals
             public float TintStrength;
@@ -32,16 +36,32 @@ namespace ARSandbox.Core
             public int ColorScheme; // Enum as int
             public bool UseDiscreteBands;
             public bool ShowWalls;
+            public float ColorShift;
 
             // Water
             public float WaterLevel;
             public float WaterOpacity;
 
+            // Contours
+            public float ContourInterval;
+            public float ContourThickness;
+
+            // Effects
+            public float SparkleIntensity;
+            public float CausticIntensity;
+            public float CausticScale;
+            public float CausticSpeed;
+
             // Filtering
+            public float SmoothingFactor;
             public float MinCutoff;
             public float Beta;
             public float HandThreshold;
             public int SpatialBlur;
+
+            // Simulation
+            public float NoiseScale;
+            public float MoveSpeed;
         }
 
         public static void Save(SandboxSettingsSO settings)
@@ -58,7 +78,11 @@ namespace ARSandbox.Core
                 MaxDepth = settings.MaxDepth,
                 HeightScale = settings.HeightScale,
                 MeshSize = settings.MeshSize,
+                MeshResolution = settings.MeshResolution,
+                MinHeight = settings.MinHeight,
+                ColorHeightMax = settings.ColorHeightMax,
                 ProjectionMatrix = new SerializableMatrix4x4(settings.ProjectionMatrix),
+                CalibrationPoints = settings.CalibrationPoints,
                 BoundaryPoints = settings.BoundaryPoints,
                 FlatMode = settings.FlatMode,
                 TintStrength = settings.TintStrength,
@@ -66,12 +90,22 @@ namespace ARSandbox.Core
                 ColorScheme = (int)settings.ColorScheme,
                 UseDiscreteBands = settings.UseDiscreteBands,
                 ShowWalls = settings.ShowWalls,
+                ColorShift = settings.ColorShift,
                 WaterLevel = settings.WaterLevel,
                 WaterOpacity = settings.WaterOpacity,
+                ContourInterval = settings.ContourInterval,
+                ContourThickness = settings.ContourThickness,
+                SparkleIntensity = settings.SparkleIntensity,
+                CausticIntensity = settings.CausticIntensity,
+                CausticScale = settings.CausticScale,
+                CausticSpeed = settings.CausticSpeed,
+                SmoothingFactor = settings.SmoothingFactor,
                 MinCutoff = settings.MinCutoff,
                 Beta = settings.Beta,
                 HandThreshold = settings.HandThreshold,
-                SpatialBlur = settings.SpatialBlur
+                SpatialBlur = settings.SpatialBlur,
+                NoiseScale = settings.NoiseScale,
+                MoveSpeed = settings.MoveSpeed
             };
 
             try
@@ -133,8 +167,14 @@ namespace ARSandbox.Core
                 }
                 
                 settings.MeshSize = data.MeshSize;
+                settings.MeshResolution = data.MeshResolution > 0 ? data.MeshResolution : 200;
+                settings.MinHeight = data.MinHeight;
+                settings.ColorHeightMax = data.ColorHeightMax > 0.01f ? data.ColorHeightMax : 5f;
                 settings.ProjectionMatrix = data.ProjectionMatrix.ToMatrix();
-                settings.ProjectionMatrix = data.ProjectionMatrix.ToMatrix();
+
+                // Restore Calibration Points (Keystone)
+                if (data.CalibrationPoints != null && data.CalibrationPoints.Length == 4)
+                    settings.CalibrationPoints = data.CalibrationPoints;
                 
                 // Validate Boundary Points (Fix for "Invisible Plain" zero-width bug)
                 bool invalidBoundary = false;
@@ -153,7 +193,6 @@ namespace ARSandbox.Core
                 if (invalidBoundary)
                 {
                     Debug.LogWarning("[SettingsManager] Invalid/Zero-size Boundary Points detected. Resetting to defaults.");
-                    // corrected order: BL, TL, TR, BR (Matches SandboxSettingsSO defaults)
                     settings.BoundaryPoints = new Vector2[] {
                         new Vector2(0, 0), 
                         new Vector2(0, 1),
@@ -171,12 +210,22 @@ namespace ARSandbox.Core
                 settings.ColorScheme = (GradientPreset)data.ColorScheme;
                 settings.UseDiscreteBands = data.UseDiscreteBands;
                 settings.ShowWalls = data.ShowWalls;
+                settings.ColorShift = data.ColorShift;
                 settings.WaterLevel = data.WaterLevel;
                 settings.WaterOpacity = data.WaterOpacity;
+                settings.ContourInterval = data.ContourInterval > 0.01f ? data.ContourInterval : 0.5f;
+                settings.ContourThickness = data.ContourThickness > 0.01f ? data.ContourThickness : 1.0f;
+                settings.SparkleIntensity = data.SparkleIntensity;
+                settings.CausticIntensity = data.CausticIntensity;
+                settings.CausticScale = data.CausticScale > 0.01f ? data.CausticScale : 2.0f;
+                settings.CausticSpeed = data.CausticSpeed;
+                settings.SmoothingFactor = data.SmoothingFactor;
                 settings.MinCutoff = data.MinCutoff;
                 settings.Beta = data.Beta;
                 settings.HandThreshold = data.HandThreshold;
                 settings.SpatialBlur = data.SpatialBlur;
+                settings.NoiseScale = data.NoiseScale;
+                settings.MoveSpeed = data.MoveSpeed;
 
                 Debug.Log($"[SettingsManager] Loaded from: {SettingsPath}");
             }

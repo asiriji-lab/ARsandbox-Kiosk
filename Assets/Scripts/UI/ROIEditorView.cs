@@ -47,8 +47,9 @@ namespace ARSandbox.UI
             if(_undoButton) _undoButton.onClick.AddListener(UndoLastPoint);
             if(_cancelButton) _cancelButton.onClick.AddListener(Hide);
             
-            // Default State
-            Hide();
+            // Default State: Only hide if not already active (prevents race with Show())
+            if (!IsActive)
+                Hide();
         }
 
         public void Show()
@@ -179,7 +180,7 @@ namespace ARSandbox.UI
                         Debug.Log("[ROI] Texture Refresh: Switched to DEPTH/DEBUG stream.");
                     }
                 }
-            _cameraPreviewImage.uvRect = new Rect(0, 0, 1, 1);
+            _cameraPreviewImage.uvRect = new Rect(1, 1, -1, -1);
         }
 
         void ClearVisuals()
@@ -193,6 +194,8 @@ namespace ARSandbox.UI
 
         private void BuildUI()
         {
+            if (_uiRoot != null) return; // Prevent duplicate UI creation
+
             // 1. Create Canvas (Admin/Overlay Layer)
             GameObject canvasObj = new GameObject("ROI_Editor_Canvas");
             canvasObj.transform.SetParent(transform, false);
@@ -226,7 +229,16 @@ namespace ARSandbox.UI
             rawTop.transform.SetParent(bgObj.transform, false);
             
             _cameraPreviewImage = rawTop.AddComponent<RawImage>();
-            _cameraPreviewImage.color = Color.black; // Will be assigned texture later
+            _cameraPreviewImage.color = Color.white; // White tint allows camera texture to display correctly
+            
+            // Fix: Forward click events from RawImage to ROIEditorView's OnPointerClick.
+            // Unity pointer events only fire on the exact GameObject whose Graphic catches
+            // the raycast — they do NOT bubble up the transform hierarchy.
+            EventTrigger trigger = rawTop.AddComponent<EventTrigger>();
+            EventTrigger.Entry clickEntry = new EventTrigger.Entry();
+            clickEntry.eventID = EventTriggerType.PointerClick;
+            clickEntry.callback.AddListener((data) => OnPointerClick((PointerEventData)data));
+            trigger.triggers.Add(clickEntry);
             
             RectTransform rawRT = _cameraPreviewImage.GetComponent<RectTransform>();
             rawRT.anchorMin = new Vector2(0.1f, 0.1f);

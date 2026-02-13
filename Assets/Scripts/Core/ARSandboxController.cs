@@ -31,6 +31,7 @@ namespace ARSandbox
     public bool EnableSimulation = true;
     private IDepthProvider _activeProvider;
     private KinectDepthProvider _kinectProvider;
+    private FemtoDepthProvider _femtoProvider;
     private SimulatedDepthProvider _simProvider;
 
     // Data Source - Settings
@@ -157,8 +158,54 @@ namespace ARSandbox
         InitColorRamp();
         AutoAssignTextures();
 
-        _kinectProvider = gameObject.AddComponent<KinectDepthProvider>();
-        _simProvider = gameObject.AddComponent<SimulatedDepthProvider>();
+        // 2. Prevent Multiple Providers
+        _kinectProvider = gameObject.GetComponent<KinectDepthProvider>();
+        if (_kinectProvider == null) _kinectProvider = gameObject.AddComponent<KinectDepthProvider>();
+        
+        _femtoProvider = gameObject.GetComponent<FemtoDepthProvider>();
+        if (_femtoProvider == null) _femtoProvider = gameObject.AddComponent<FemtoDepthProvider>();
+
+        // [Auto-Detect] Check hardware availability
+        // Priority: Orbbec Femto > Azure Kinect > Simulation
+        bool hasFemto = false;
+        bool hasKinect = false;
+        
+        try
+        {
+            hasFemto = _femtoProvider.IsSensorAvailable();
+            Debug.Log($"[Auto-Detect] Femto check: {hasFemto}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[Auto-Detect] Femto probe FAILED: {e.GetType().Name}: {e.Message}");
+        }
+        
+        try
+        {
+            hasKinect = _kinectProvider.IsSensorAvailable();
+            Debug.Log($"[Auto-Detect] Kinect check: {hasKinect}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[Auto-Detect] Kinect probe FAILED: {e.GetType().Name}: {e.Message}");
+        }
+        
+        Debug.Log($"[Auto-Detect] Results \u2014 Femto: {hasFemto}, Kinect: {hasKinect}, EnableSimulation: {EnableSimulation}");
+        
+        if ((hasFemto || hasKinect) && EnableSimulation)
+        {
+             string detected = hasFemto ? "Orbbec Femto" : "Azure Kinect";
+             Debug.Log($"[Auto-Detect] {detected} Found. Switching to Hardware Mode.");
+             EnableSimulation = false;
+        }
+        else if (!hasFemto && !hasKinect && !EnableSimulation)
+        {
+             Debug.Log("[Auto-Detect] No depth sensor found. Switching to Simulation Mode.");
+             EnableSimulation = true;
+        }
+
+        _simProvider = gameObject.GetComponent<SimulatedDepthProvider>();
+        if (_simProvider == null) _simProvider = gameObject.AddComponent<SimulatedDepthProvider>();
         
         SwitchProvider(EnableSimulation);
 
@@ -186,8 +233,21 @@ namespace ARSandbox
 
     void SwitchProvider(bool useSim)
     {
+        Debug.Log($"[SwitchProvider] Called with useSim={useSim}");
         EnableSimulation = useSim;
-        if (_activeProvider != null) _activeProvider.Shutdown();
+        
+        try
+        {
+            if (_activeProvider != null)
+            {
+                Debug.Log($"[SwitchProvider] Shutting down previous provider: {_activeProvider.GetDeviceName()}");
+                _activeProvider.Shutdown();
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[SwitchProvider] Shutdown FAILED: {e.GetType().Name}: {e.Message}");
+        }
 
         if (useSim)
         {
@@ -199,18 +259,70 @@ namespace ARSandbox
         }
         else
         {
-            _activeProvider = _kinectProvider;
+            // Priority: Orbbec Femto > Azure Kinect > Safe Fallback
+            bool femtoAvailable = false;
+            bool kinectAvailable = false;
+            
+            try { femtoAvailable = _femtoProvider != null && _femtoProvider.IsSensorAvailable(); }
+            catch (Exception e) { Debug.LogError($"[SwitchProvider] Femto check FAILED: {e.GetType().Name}: {e.Message}"); }
+            
+            try { kinectAvailable = _kinectProvider != null && _kinectProvider.IsSensorAvailable(); }
+            catch (Exception e) { Debug.LogError($"[SwitchProvider] Kinect check FAILED: {e.GetType().Name}: {e.Message}"); }
+            
+            Debug.Log($"[SwitchProvider] Hardware probe \u2014 Femto: {femtoAvailable}, Kinect: {kinectAvailable}");
+            
+            if (femtoAvailable)
+                _activeProvider = _femtoProvider;
+            else if (kinectAvailable)
+                _activeProvider = _kinectProvider;
+            else
+            {
+                Debug.LogWarning("[SwitchProvider] No hardware sensor available. Falling back to Simulation.");
+                EnableSimulation = true;
+                _activeProvider = _simProvider;
+                _simProvider.NoiseScale = NoiseScale;
+                _simProvider.MoveSpeed = MoveSpeed;
+                _simProvider.MinDepthMM = MinDepthMM;
+                _simProvider.MaxDepthMM = MaxDepthMM;
+            }
         }
 
-        _activeProvider.Initialize();
+        try
+        {
+            Debug.Log($"[SwitchProvider] Initializing provider: {_activeProvider.GetDeviceName()}");
+            _activeProvider.Initialize();
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[SwitchProvider] Initialize FAILED for {_activeProvider.GetDeviceName()}: {e.GetType().Name}: {e.Message}\n{e.StackTrace}");
+        }
+        
         _watchdog?.ResetHeartbeat();
-        Debug.Log($"[ARSandboxController] Switched to Provider: {_activeProvider.GetDeviceName()} (Sim={useSim})");
+        Debug.Log($"[SwitchProvider] DONE \u2014 Active: {_activeProvider.GetDeviceName()}, Sim={EnableSimulation}");
     }
 
     public void ResetSensor()
     {
         if (_activeProvider == null) return;
         Debug.Log($"[ARSandboxController] Resetting Sensor: {_activeProvider.GetDeviceName()}");
+        
+        // Safety: If hardware provider lost connection, fall back to simulation
+        bool isHardwareProvider = _activeProvider == (IDepthProvider)_kinectProvider || 
+                                  _activeProvider == (IDepthProvider)_femtoProvider;
+        if (isHardwareProvider)
+        {
+            bool femtoOk = false;
+            bool kinectOk = false;
+            try { femtoOk = _femtoProvider != null && _femtoProvider.IsSensorAvailable(); } catch { }
+            try { kinectOk = _kinectProvider != null && _kinectProvider.IsSensorAvailable(); } catch { }
+            
+            if (!femtoOk && !kinectOk)
+            {
+                Debug.LogWarning("[ResetSensor] Hardware lost! Falling back to Simulation.");
+                SwitchProvider(true);
+                return;
+            }
+        }
         
         _activeProvider.Shutdown();
         _activeProvider.Initialize();

@@ -1,19 +1,23 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using Microsoft.Azure.Kinect.Sensor; // Requires Azure Kinect Sensor SDK
+using Microsoft.Azure.Kinect.Sensor; // Orbbec K4A Wrapper (binary compatible)
 using System.Threading.Tasks;
 using System;
 
-public class KinectDepthProvider : MonoBehaviour, IDepthProvider
+/// <summary>
+/// Depth provider for Orbbec Femto via K4A Wrapper.
+/// Uses NFOV_Unbinned (1024x1024) by default.
+/// </summary>
+public class FemtoDepthProvider : MonoBehaviour, IDepthProvider
 {
-    [Header("Kinect Settings")]
+    [Header("Femto Settings")]
     public int DeviceIndex = 0;
-    public DepthMode DepthMode = DepthMode.NFOV_2x2Binned; 
+    public DepthMode DepthMode = DepthMode.NFOV_Unbinned; // 1024x1024
     public FPS CameraFPS = FPS.FPS30;
 
     // Internal - Depth
-    private Device _kinectDevice;
+    private Device _femtoDevice;
     private ushort[] _depthData;
     private ushort[] _latestDepthFrame;
     private int _depthWidth;
@@ -47,40 +51,47 @@ public class KinectDepthProvider : MonoBehaviour, IDepthProvider
         try
         {
             int count = Device.GetInstalledCount();
-            Debug.Log($"[KinectDepthProvider] IsSensorAvailable: Device.GetInstalledCount() = {count}");
+            Debug.Log($"[FemtoDepthProvider] IsSensorAvailable: Device.GetInstalledCount() = {count}");
             return count > 0;
         }
         catch (DllNotFoundException e)
         {
-            Debug.LogError($"[KinectDepthProvider] K4A DLL not found: {e.Message}");
+            Debug.LogError($"[FemtoDepthProvider] K4A wrapper DLL not found: {e.Message}");
             return false;
         }
         catch (Exception e)
         {
-            Debug.LogError($"[KinectDepthProvider] IsSensorAvailable error: {e.GetType().Name}: {e.Message}");
+            Debug.LogError($"[FemtoDepthProvider] IsSensorAvailable error: {e.GetType().Name}: {e.Message}");
             return false;
         }
     }
 
     public void Initialize()
     {
-        InitKinect();
+        InitFemto();
     }
 
     public void Shutdown()
     {
         _isRunning = false;
-        if (_kinectDevice != null)
+        if (_femtoDevice != null)
         {
-            _kinectDevice.StopCameras();
-            _kinectDevice.Dispose();
-            _kinectDevice = null;
+            try
+            {
+                _femtoDevice.StopCameras();
+                _femtoDevice.Dispose();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[Femto] Shutdown error: {e.Message}");
+            }
+            _femtoDevice = null;
         }
     }
 
     public string GetDeviceName()
     {
-        return $"Azure Kinect (Index {DeviceIndex})";
+        return $"Orbbec Femto (Index {DeviceIndex})";
     }
 
     public ushort[] GetDepthData()
@@ -96,8 +107,7 @@ public class KinectDepthProvider : MonoBehaviour, IDepthProvider
                 return _depthData;
             }
         }
-        
-        // Return cached data if no new frame
+
         return _depthData;
     }
 
@@ -109,7 +119,6 @@ public class KinectDepthProvider : MonoBehaviour, IDepthProvider
         {
             if (_newColorFrameAvailable)
             {
-                // BGRA32 format: each pixel is 4 bytes
                 _colorTexture.LoadRawTextureData(_latestColorFrame);
                 _colorTexture.Apply();
                 _newColorFrameAvailable = false;
@@ -119,77 +128,84 @@ public class KinectDepthProvider : MonoBehaviour, IDepthProvider
         return _colorTexture;
     }
 
-    void InitKinect()
+    void InitFemto()
     {
         try
         {
-            if (Device.GetInstalledCount() > 0)
+            int deviceCount = Device.GetInstalledCount();
+            Debug.Log($"[Femto] Device.GetInstalledCount() = {deviceCount}");
+            
+            if (deviceCount > 0)
             {
-                _kinectDevice = Device.Open(DeviceIndex);
-                _kinectDevice.StartCameras(new DeviceConfiguration
+                Debug.Log($"[Femto] Opening device at index {DeviceIndex}...");
+                _femtoDevice = Device.Open(DeviceIndex);
+                
+                var config = new DeviceConfiguration
                 {
                     ColorFormat = ImageFormat.ColorBGRA32,
-                    ColorResolution = ColorResolution.R720p, // 1280x720
+                    ColorResolution = ColorResolution.R720p,
                     DepthMode = DepthMode,
                     WiredSyncMode = WiredSyncMode.Standalone,
                     CameraFPS = CameraFPS
-                });
+                };
+                
+                Debug.Log($"[Femto] Starting cameras with DepthMode={DepthMode}, FPS={CameraFPS}...");
+                _femtoDevice.StartCameras(config);
 
-                // Get initial calibration to know resolution
-                var cal = _kinectDevice.GetCalibration();
+                var cal = _femtoDevice.GetCalibration();
                 _depthWidth = cal.DepthCameraCalibration.ResolutionWidth;
                 _depthHeight = cal.DepthCameraCalibration.ResolutionHeight;
                 _colorWidth = cal.ColorCameraCalibration.ResolutionWidth;
                 _colorHeight = cal.ColorCameraCalibration.ResolutionHeight;
-                
+
                 _depthData = new ushort[_depthWidth * _depthHeight];
                 _latestDepthFrame = new ushort[_depthWidth * _depthHeight];
-                
-                // Color: BGRA32 = 4 bytes per pixel
+
                 _colorData = new byte[_colorWidth * _colorHeight * 4];
                 _latestColorFrame = new byte[_colorWidth * _colorHeight * 4];
                 _colorTexture = new Texture2D(_colorWidth, _colorHeight, TextureFormat.BGRA32, false);
 
                 _isRunning = true;
-                // Start polling thread
-                Task.Run(() => KinectLoop());
-                
-                Debug.Log($"[Kinect] Initialized. Depth: {_depthWidth}x{_depthHeight}, Color: {_colorWidth}x{_colorHeight}");
+                Task.Run(() => FemtoLoop());
+
+                Debug.Log($"[Femto] Initialized OK. Depth: {_depthWidth}x{_depthHeight}, Color: {_colorWidth}x{_colorHeight}");
                 _stopwatch.Start();
                 _lastLogTime = _stopwatch.ElapsedMilliseconds;
             }
             else
             {
-                Debug.LogError("No Azure Kinect device found!");
+                Debug.LogError("[Femto] No Orbbec Femto device found! (Device.GetInstalledCount() == 0)");
             }
+        }
+        catch (DllNotFoundException e)
+        {
+            Debug.LogError($"[Femto] CRITICAL: K4A wrapper DLL missing: {e.Message}");
         }
         catch (Exception e)
         {
-            Debug.LogError($"Failed to start Kinect: {e.Message}");
+            Debug.LogError($"[Femto] Init FAILED: {e.GetType().Name}: {e.Message}\n{e.StackTrace}");
         }
     }
 
-    void KinectLoop()
+    void FemtoLoop()
     {
-        while (_isRunning && _kinectDevice != null)
+        while (_isRunning && _femtoDevice != null)
         {
-            try 
+            try
             {
-                using (Capture capture = _kinectDevice.GetCapture())
+                using (Capture capture = _femtoDevice.GetCapture())
                 {
                     if (capture != null)
                     {
                         lock (_lockObj)
                         {
-                            // Depth
                             if (capture.Depth != null)
                             {
                                 capture.Depth.CopyTo(_latestDepthFrame, 0, 0, _latestDepthFrame.Length);
                                 _newFrameAvailable = true;
                                 _depthFrameCount++;
                             }
-                            
-                            // Color
+
                             if (capture.Color != null)
                             {
                                 capture.Color.CopyTo(_latestColorFrame, 0, 0, _latestColorFrame.Length);
@@ -198,11 +214,10 @@ public class KinectDepthProvider : MonoBehaviour, IDepthProvider
                             }
                         }
 
-                        // Periodically log heartbeat (every 5 seconds)
                         long now = _stopwatch.ElapsedMilliseconds;
                         if (now - _lastLogTime > 5000)
                         {
-                            Debug.Log($"[Kinect] Heartbeat - Recv: {_depthFrameCount} depth, {_colorFrameCount} color frames.");
+                            Debug.Log($"[Femto] Heartbeat - Recv: {_depthFrameCount} depth, {_colorFrameCount} color frames.");
                             _lastLogTime = now;
                         }
                     }
@@ -210,10 +225,7 @@ public class KinectDepthProvider : MonoBehaviour, IDepthProvider
             }
             catch (Exception e)
             {
-                Debug.LogError($"[Kinect] CRITICIAL LOOP ERROR: {e.Message}");
-                // Don't break, try to recover next frame? Or break if fatal?
-                // If GetCapture failed, maybe device is lost.
-                // For now, allow retry but log furiously.
+                Debug.LogError($"[Femto] CRITICAL LOOP ERROR: {e.GetType().Name}: {e.Message}");
             }
         }
     }
